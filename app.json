@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "ranting-violet-milkshake",
+    "name": "MCP",
     "slug": "snack-20688d4a-3587-4238-835f-942aa5d9afa1",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -25,6 +25,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "description": "Mera mcp taiyar"
+    "description": "My MCP is ready"
   }
 }
