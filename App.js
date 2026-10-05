@@ -1,21 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Text, View, FlatList, Image, TouchableOpacity, SafeAreaView, TextInput, Linking, Animated, Easing } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Text, View, FlatList, Image, TouchableOpacity, SafeAreaView, Linking, Animated, Easing, ScrollView, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { styles } from './styles';
 import Admin from './Admin';
-import { 
-  MovieDetailModal, 
-  PrivateRoomModal, 
-  PredictModal, 
-  LeaderboardModal, 
-  NotificationsModal, 
-  SettingsModal, 
-  DisclaimerModal, 
-  WalletModal 
-} from './Modals';
-import { SUPABASE_URL, ADMIN_PHONE, getHeaders, isContestLocked } from './constants';
+import WalletModal from './Wallet';
+import { MovieDetailModal, PredictModal, LeaderboardModal, PrivateRoomModal, NotificationsModal, SettingsModal, TermsModal } from './Modals';
+import { C, notify, confirmBox, Btn, Field, Tag } from './ui';
+import { loadSession, hasSession, getUserId, getEmail, signIn, signUp, signOut, recover, select, rpc } from './api';
+import { CURRENCIES, CATEGORIES, curInfo, fmt, isLocked, APP_VERSION } from './constants';
 
-const STORAGE_KEY = '@mcp_fantasy_state_v1';
+const SEEN_KEY = '@mcp_seen_notif';
+const PLACEHOLDER = 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500';
 
 // ---------- Splash Screen (logo + zoom animation, ~1.7 sec) ----------
 function SplashScreen({ onFinish }) {
@@ -56,361 +51,323 @@ function SplashScreen({ onFinish }) {
   );
 }
 
+const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s || '').trim());
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('contests');
-  const [selectedCategory, setSelectedCategory] = useState('ALL');
- const [walletModal, setWalletModal] = useState(false);
- 
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [hasAgreedDisclaimer, setHasAgreedDisclaimer] = useState(false);
-  const [showDisclaimer, setShowDisclaimer] = useState(false);
-
-  const [userName, setUserName] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [otp, setOtp] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-
-  const [walletBalance, setWalletBalance] = useState(500);
-  const [adminWallet, setAdminWallet] = useState(0);
-  const [moviesList, setMoviesList] = useState([]);
-  const [leaderboardData, setLeaderboardData] = useState([]);
-  const [winnersList, setWinnersList] = useState({});
-  const [winnerLogs, setWinnerLogs] = useState([]);
-  const [privateRooms, setPrivateRooms] = useState([]);
-
-  const [notifications, setNotifications] = useState([
-    { title: '🎉 Welcome to MCP Fantasy', message: 'Predict Day 1 Box Office & Win Real Cash!', date: 'Today' }
-  ]);
-  const [hasUnseenNotif, setHasUnseenNotif] = useState(true);
-
-  const [movieDetailModal, setMovieDetailModal] = useState(false);
-  const [privateRoomModal, setPrivateRoomModal] = useState(false);
-  const [notifModal, setNotifModal] = useState(false);
-  const [settingsModal, setSettingsModal] = useState(false);
-
-  const [selectedMovie, setSelectedMovie] = useState(null);
-  const [predictModal, setPredictModal] = useState(false);
-  const [selectedFee, setSelectedFee] = useState(9);
-  const [predictionVal, setPredictionVal] = useState('');
-  const [activePrivateCode, setActivePrivateCode] = useState(null);
-  const [isEditingPrediction, setIsEditingPrediction] = useState(false);
-  const [editingPredIndex, setEditingPredIndex] = useState(null);
-
-  const [boardModal, setBoardModal] = useState(false);
-  const [boardFee, setBoardFee] = useState(9);
-
-  const [isLoaded, setIsLoaded] = useState(false);
   const [splashDone, setSplashDone] = useState(false);
+  const [booting, setBooting] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [balances, setBalances] = useState({ coin: 0, diamond: 0, red: 0 });
+  const [movies, setMovies] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [notifs, setNotifs] = useState([]);
+  const [seenId, setSeenId] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [tab, setTab] = useState('contests');
+  const [category, setCategory] = useState('ALL');
 
-  // App khulte hi saved data wapas lao (login, wallet, etc.)
+  // modals
+  const [detailMovie, setDetailMovie] = useState(null);
+  const [predict, setPredict] = useState(null);
+  const [board, setBoard] = useState(null);
+  const [roomModal, setRoomModal] = useState(null);
+  const [walletOpen, setWalletOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+
+  // login / register form
+  const [mode, setMode] = useState('login');
+  const [fName, setFName] = useState('');
+  const [fEmail, setFEmail] = useState('');
+  const [fPhone, setFPhone] = useState('');
+  const [fPass, setFPass] = useState('');
+  const [agree, setAgree] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+
+  const loadAll = useCallback(async (silent) => {
+    const id = getUserId();
+    if (!id) return;
+    try {
+      const results = await Promise.all([
+        select('mcp_profiles', 'id=eq.' + id + '&select=name,phone,is_admin,terms_accepted_at'),
+        select('mcp_balances', 'user_id=eq.' + id + '&select=cur,amount'),
+        select('mcp_movies', 'select=*&order=release_date.desc'),
+        select('mcp_entries', 'user_id=eq.' + id + '&select=*&order=created_at.desc'),
+        select('mcp_notifications', 'select=*&order=created_at.desc&limit=30'),
+      ]);
+      const p = results[0];
+      if (p && p[0]) setProfile(p[0]);
+      const bal = { coin: 0, diamond: 0, red: 0 };
+      (results[1] || []).forEach((r) => { bal[r.cur] = Number(r.amount); });
+      setBalances(bal);
+      setMovies(results[2] || []);
+      setEntries(results[3] || []);
+      setNotifs(results[4] || []);
+    } catch (e) {
+      if (!hasSession()) {
+        setLoggedIn(false);
+        setProfile(null);
+        if (!silent) notify(e.message);
+      } else if (!silent) {
+        notify(e.message);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const s = JSON.parse(raw);
-          if (s.isLoggedIn) setIsLoggedIn(true);
-          if (typeof s.userName === 'string') setUserName(s.userName);
-          if (typeof s.phoneNumber === 'string') setPhoneNumber(s.phoneNumber);
-          if (s.hasAgreedDisclaimer) setHasAgreedDisclaimer(true);
-          if (s.isLoggedIn && !s.hasAgreedDisclaimer) setShowDisclaimer(true);
-          if (typeof s.walletBalance === 'number') setWalletBalance(s.walletBalance);
-          if (typeof s.adminWallet === 'number') setAdminWallet(s.adminWallet);
-          if (Array.isArray(s.privateRooms)) setPrivateRooms(s.privateRooms);
-          if (s.winnersList && typeof s.winnersList === 'object') setWinnersList(s.winnersList);
-          if (Array.isArray(s.winnerLogs)) setWinnerLogs(s.winnerLogs);
-          if (Array.isArray(s.notifications) && s.notifications.length > 0) setNotifications(s.notifications);
-        }
+        await loadSession();
+        if (hasSession()) setLoggedIn(true);
+        const seen = await AsyncStorage.getItem(SEEN_KEY);
+        if (seen) setSeenId(Number(seen) || 0);
       } catch (e) {}
-      setIsLoaded(true);
+      setBooting(false);
     })();
   }, []);
 
-  // Jab bhi ye data badle, phone mein save karo
   useEffect(() => {
-    if (!isLoaded) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({
-      isLoggedIn, userName, phoneNumber, hasAgreedDisclaimer,
-      walletBalance, adminWallet, privateRooms, winnersList, winnerLogs, notifications
-    })).catch(() => {});
-  }, [isLoaded, isLoggedIn, userName, phoneNumber, hasAgreedDisclaimer, walletBalance, adminWallet, privateRooms, winnersList, winnerLogs, notifications]);
+    if (!loggedIn) return;
+    loadAll(false);
+    const t = setInterval(() => loadAll(true), 30000);
+    return () => clearInterval(t);
+  }, [loggedIn]);
 
-  const fetchMovies = async () => {
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadAll(false);
+    setRefreshing(false);
+  };
+
+  // ---------- auth ----------
+  const doLogin = async () => {
+    if (!isEmail(fEmail) || !fPass) { notify('Email aur password daalein.'); return; }
+    setAuthBusy(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/Movies?select=*`, { method: 'GET', headers: getHeaders() });
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) setMoviesList(data);
-    } catch (err) {}
+      await signIn(fEmail.trim().toLowerCase(), fPass);
+      setLoggedIn(true);
+      setFPass('');
+    } catch (e) {
+      notify(e.message);
+    }
+    setAuthBusy(false);
   };
 
-  const fetchLeaderboard = async () => {
+  const doRegister = async () => {
+    if (fName.trim().length < 2) { notify('Apna naam daalein.'); return; }
+    if (!isEmail(fEmail)) { notify('Sahi email daalein.'); return; }
+    if (!/^[6-9][0-9]{9}$/.test(fPhone.trim())) { notify('10 digit ka sahi phone number daalein.'); return; }
+    if (fPass.length < 8) { notify('Password kam se kam 8 akshar ka rakhein.'); return; }
+    if (!agree) { notify('18+ confirm karein aur Terms & Conditions accept karein.'); return; }
+    setAuthBusy(true);
     try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/predictions?select=*`, { method: 'GET', headers: getHeaders() });
-      const data = await res.json();
-      if (Array.isArray(data)) setLeaderboardData(data);
-    } catch (err) {}
-  };
-
-  useEffect(() => { fetchMovies(); fetchLeaderboard(); }, []);
-
-  const handleSendOtp = () => {
-    if (!userName.trim() || !phoneNumber || phoneNumber.length < 10) return alert('Enter valid Name and Phone.');
-    setOtpSent(true);
-  };
-
-  const handleVerifyOtp = () => {
-    if (otp === '123456' || otp === '1234') {
-      setIsLoggedIn(true);
-      if (!hasAgreedDisclaimer) setShowDisclaimer(true);
-    } else {
-      alert('Invalid OTP. Use 1234');
+      await signUp({ email: fEmail.trim().toLowerCase(), password: fPass, name: fName.trim(), phone: fPhone.trim() });
+      setLoggedIn(true);
+      setFPass('');
+    } catch (e) {
+      notify(e.message);
     }
+    setAuthBusy(false);
   };
 
-  const handleCreatePrivateRoom = (movieTitle, fee, spots) => {
-    const roomCode = `PR-${Math.floor(1000 + Math.random() * 9000)}`;
-    const newRoom = { code: roomCode, movie_title: movieTitle, entry_fee: fee, spots: spots, created_by: userName };
-    setPrivateRooms(prev => [...prev, newRoom]);
-    alert(`🎉 Private Room Created!\n\nRoom Code: ${roomCode}\nFee: ₹${fee}\nSpots: ${spots}`);
-  };
-
-  const handleJoinPrivateRoom = (roomDetails) => {
-    setSelectedFee(roomDetails.entry_fee);
-    setActivePrivateCode(roomDetails.code);
-    setIsEditingPrediction(false);
-    setPredictModal(true);
-  };
-
-  const handlePredictClick = async () => {
-    if (!predictionVal || isNaN(predictionVal)) return alert('Enter valid prediction amount.');
-
-    if (isEditingPrediction) {
-      setLeaderboardData(prev => prev.map((p, idx) => idx === editingPredIndex ? { ...p, predicted_amount: parseFloat(predictionVal) } : p));
-      setPredictModal(false);
-      setPredictionVal('');
-      setIsEditingPrediction(false);
-      return alert('✅ Prediction Updated Successfully!');
-    }
-
-    if (walletBalance < selectedFee) return alert('Insufficient Wallet Balance!');
-
-    setAdminWallet(prev => prev + (selectedFee * 0.20));
-
-    const newEntry = { 
-      movie_title: selectedMovie.title, 
-      category: 'Day 1', 
-      entry_fee: selectedFee,
-      predicted_amount: parseFloat(predictionVal), 
-      user_phone: `${userName} (${phoneNumber})`, 
-      payment_status: 'SUCCESS',
-      private_code: activePrivateCode || null
-    };
-
+  const doForgot = async () => {
+    if (!isEmail(fEmail)) { notify('Pehle upar apna email daalein.'); return; }
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/predictions`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(newEntry) });
-    } catch (e) {}
-
-    setWalletBalance(prev => prev - selectedFee);
-    setLeaderboardData(prev => [newEntry, ...prev]);
-    setPredictModal(false);
-    setPredictionVal('');
-    setActivePrivateCode(null);
-    alert('🎉 Prediction Submitted Successfully!');
-  };
-
-  const handleDeclareWinner = async (targetMovie, actualCollection, fee = 9) => {
-    if (!targetMovie || !actualCollection) return alert('Enter Movie Title & Collection.');
-    const winnerKey = `${targetMovie.toLowerCase()}_${fee}`;
-
-    if (winnersList[winnerKey]) {
-      return alert(`⚠️ Winners ALREADY declared for ${targetMovie} (₹${fee} Contest). Duplicate money payout prevented.`);
+      await recover(fEmail.trim().toLowerCase());
+      notify('Password reset ka link email par bhej diya gaya hai.');
+    } catch (e) {
+      notify(e.message);
     }
+  };
 
-    const moviePredictions = leaderboardData.filter(p => {
-      const titleMatch = p.movie_title?.toString().trim().toLowerCase() === targetMovie?.toString().trim().toLowerCase();
-      const feeMatch = String(p.entry_fee) === String(fee) || (!p.entry_fee && Number(fee) === 9);
-      return titleMatch && feeMatch;
-    });
+  const doLogout = async () => {
+    const ok = await confirmBox('Logout karna hai?');
+    if (!ok) return;
+    await signOut();
+    setLoggedIn(false);
+    setProfile(null);
+    setMovies([]);
+    setEntries([]);
+    setBalances({ coin: 0, diamond: 0, red: 0 });
+    setSettingsOpen(false);
+    setTab('contests');
+  };
 
-    if (moviePredictions.length === 0) return alert(`No predictions found for ${targetMovie} in ₹${fee} Contest.`);
-
-    const actual = parseFloat(actualCollection);
-    const sorted = moviePredictions.map(p => ({
-      ...p,
-      diff: Math.abs(parseFloat(p.predicted_amount) - actual)
-    })).sort((a, b) => a.diff - b.diff);
-
-    const stats = getContestStats(targetMovie, parseFloat(fee));
-    const win1 = sorted[0];
-
-    if (win1) {
-      setWinnersList(prev => ({
-        ...prev,
-        [winnerKey]: { userName: win1.user_phone, prize: stats.rank1Prize, predictedAmount: win1.predicted_amount, actualCollection: actual }
-      }));
-
-      setWinnerLogs(prev => [
-        { movieTitle: targetMovie, fee, winnerPhone: win1.user_phone, prize: stats.rank1Prize, actual },
-        ...prev
-      ]);
-
-      if (win1.user_phone.includes(phoneNumber)) {
-        setWalletBalance(p => p + stats.rank1Prize);
-      }
+  const acceptTerms = async () => {
+    try {
+      await rpc('mcp_accept_terms', {});
+      await loadAll(false);
+    } catch (e) {
+      notify(e.message);
     }
-
-    alert(`🎉 WINNER DECLARED & PAID!\n\nWinner: ${win1.user_phone}\nPrize: ₹${stats.rank1Prize}`);
   };
 
-  const handleSendNotification = (title, message) => {
-    if (!title || !message) return alert('Enter title and message.');
-    setNotifications(prev => [{ title, message, date: 'Just Now' }, ...prev]);
-    setHasUnseenNotif(true);
-    alert('📢 Broadcast Sent!');
+  const markSeen = async () => {
+    const top = notifs.length > 0 ? notifs[0].id : 0;
+    setSeenId(top);
+    try { await AsyncStorage.setItem(SEEN_KEY, String(top)); } catch (e) {}
   };
 
-  const getContestStats = (movieTitle, fee) => {
-    const movieEntries = leaderboardData.filter(p => {
-      const titleMatch = p.movie_title?.toString().trim().toLowerCase() === movieTitle?.toString().trim().toLowerCase();
-      const feeMatch = String(p.entry_fee) === String(fee) || (!p.entry_fee && Number(fee) === 9);
-      return titleMatch && feeMatch;
-    });
-
-    const totalEntries = movieEntries.length;
-    const totalCollected = totalEntries * Number(fee);
-    const totalPrizePool = Math.round(totalCollected * 0.8);
-
-    return {
-      entriesCount: totalEntries,
-      totalCollected,
-      totalPrizePool,
-      rank1Prize: Math.round(totalPrizePool * 0.5),
-      movieEntries
-    };
-  };
-
-  const filteredMovies = selectedCategory === 'ALL' ? moviesList : moviesList.filter(m => m.category?.toLowerCase() === selectedCategory.toLowerCase());
-  const userJoinedMovies = moviesList.filter(movie => leaderboardData.some(p => p.movie_title?.toLowerCase() === movie.title?.toLowerCase() && p.user_phone?.includes(phoneNumber)));
+  const movieById = (id) => movies.find((m) => m.id === id) || null;
+  const unseen = notifs.length > 0 && notifs[0].id > seenId;
+  const isAdmin = !!(profile && profile.is_admin);
+  const filteredMovies = category === 'ALL' ? movies : movies.filter((m) => (m.category || '').toLowerCase() === category.toLowerCase());
+  const afterAction = () => { setPredict(null); loadAll(true); };
 
   if (!splashDone) return <SplashScreen onFinish={() => setSplashDone(true)} />;
+  if (booting) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
 
-  if (!isLoaded) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
-
-  if (!isLoggedIn) {
+  // ---------- Login / Register screen ----------
+  if (!loggedIn) {
     return (
-      <SafeAreaView style={styles.authContainer}>
-        <View style={styles.authCard}>
-          <Text style={styles.authLogo}>🎬 MCP Fantasy</Text>
-          <Text style={styles.authSub}>Predict Box Office & Win Real Cash!</Text>
-          {!otpSent ? (
-            <View>
-              <Text style={styles.label}>Name:</Text>
-              <TextInput style={styles.input} value={userName} onChangeText={setUserName} placeholder="Enter Name" placeholderTextColor="#666" />
-              <Text style={styles.label}>Phone:</Text>
-              <TextInput style={styles.input} keyboardType="phone-pad" value={phoneNumber} onChangeText={setPhoneNumber} placeholder="10 Digit Phone" placeholderTextColor="#666" maxLength={10} />
-              <TouchableOpacity style={styles.primaryBtn} onPress={handleSendOtp}><Text style={styles.primaryBtnText}>Get OTP</Text></TouchableOpacity>
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 18 }} keyboardShouldPersistTaps="handled">
+          <View style={styles.authCard}>
+            <Text style={styles.authLogo}>🎬 MCP Fantasy</Text>
+            <Text style={styles.authSub}>Movie Collection Prediction</Text>
+            <View style={{ flexDirection: 'row', marginBottom: 14 }}>
+              <TouchableOpacity style={[styles.tabItem, mode === 'login' && styles.activeTab]} onPress={() => setMode('login')}>
+                <Text style={styles.tabText}>Login</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.tabItem, mode === 'register' && styles.activeTab]} onPress={() => setMode('register')}>
+                <Text style={styles.tabText}>Naya Account</Text>
+              </TouchableOpacity>
             </View>
-          ) : (
-            <View>
-              <Text style={styles.label}>OTP (1234):</Text>
-              <TextInput style={styles.input} keyboardType="number-pad" value={otp} onChangeText={setOtp} placeholder="1234" placeholderTextColor="#666" />
-              <TouchableOpacity style={styles.primaryBtn} onPress={handleVerifyOtp}><Text style={styles.primaryBtnText}>Verify OTP</Text></TouchableOpacity>
-            </View>
-          )}
-        </View>
+            {mode === 'register' ? <Field label="Naam" value={fName} onChangeText={setFName} autoCapitalize="words" maxLength={30} /> : null}
+            <Field label="Email" value={fEmail} onChangeText={setFEmail} keyboardType="email-address" />
+            {mode === 'register' ? <Field label="Phone (10 digit)" value={fPhone} onChangeText={setFPhone} keyboardType="phone-pad" maxLength={10} /> : null}
+            <Field label="Password (kam se kam 8 akshar)" value={fPass} onChangeText={setFPass} secure />
+            {mode === 'register' ? (
+              <View style={{ marginBottom: 12 }}>
+                <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => setAgree(!agree)}>
+                  <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 1, borderColor: C.sub, backgroundColor: agree ? C.red : 'transparent', marginRight: 8, alignItems: 'center', justifyContent: 'center' }}>
+                    {agree ? <Text style={{ color: '#fff', fontSize: 12 }}>✓</Text> : null}
+                  </View>
+                  <Text style={{ color: '#ccc', fontSize: 11, flex: 1 }}>Meri umar 18 saal ya usse zyada hai aur main Terms & Conditions maanta hoon.</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setTermsOpen(true)}>
+                  <Text style={{ color: C.blue, fontSize: 11, marginTop: 6 }}>📜 Terms & Conditions padhein</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            <Btn title={authBusy ? 'Please wait...' : (mode === 'login' ? 'Login' : 'Account banayein')} onPress={mode === 'login' ? doLogin : doRegister} disabled={authBusy} />
+            {mode === 'login' ? (
+              <TouchableOpacity onPress={doForgot}>
+                <Text style={{ color: C.blue, fontSize: 12, textAlign: 'center', marginTop: 12 }}>Password bhool gaye?</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </ScrollView>
+        <TermsModal visible={termsOpen} onClose={() => setTermsOpen(false)} />
       </SafeAreaView>
     );
   }
-    return (
-    <SafeAreaView style={styles.container}>
-      <DisclaimerModal visible={showDisclaimer} onAgree={() => { setHasAgreedDisclaimer(true); setShowDisclaimer(false); }} />
 
+  // ---------- Terms gate (purane account ke liye) ----------
+  if (profile && !profile.terms_accepted_at) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 18 }}>
+          <View style={styles.authCard}>
+            <Text style={styles.authLogo}>📜 Terms & Conditions</Text>
+            <Text style={{ color: '#ccc', fontSize: 12, marginVertical: 12 }}>Aage badhne ke liye 18+ confirm karein aur Terms & Conditions accept karein.</Text>
+            <Btn title="Padhein" color="#333" onPress={() => setTermsOpen(true)} style={{ marginBottom: 8 }} />
+            <Btn title="Main 18+ hoon aur accept karta hoon" onPress={acceptTerms} />
+            <Btn title="Logout" color="#333" onPress={doLogout} style={{ marginTop: 8 }} />
+          </View>
+        </ScrollView>
+        <TermsModal visible={termsOpen} onClose={() => setTermsOpen(false)} />
+      </SafeAreaView>
+    );
+  }
+
+  // ---------- Main app ----------
+  return (
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.logoText}>🎬 MCP Fantasy</Text>
-          <Text style={{ color: '#aaa', fontSize: 10 }}>👤 {userName} {phoneNumber === ADMIN_PHONE ? '(Admin)' : ''}</Text>
+          <Text style={{ color: C.sub, fontSize: 10 }}>{'👤 ' + (profile ? profile.name : '') + (isAdmin ? ' (Admin)' : '')}</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity style={{ marginRight: 10 }} onPress={() => setNotifModal(true)}>
-            <Text style={{ fontSize: 18 }}>🔔</Text>
-            {hasUnseenNotif && <View style={{ position: 'absolute', right: 0, top: 0, width: 7, height: 7, borderRadius: 4, backgroundColor: '#e50914' }} />}
-          </TouchableOpacity>
-          <TouchableOpacity style={{ marginRight: 10 }} onPress={() => setSettingsModal(true)}>
-            <Text style={{ fontSize: 18 }}>⚙️</Text>
-          </TouchableOpacity>
-     <TouchableOpacity onPress={() => setWalletModal(true)} style={styles.walletBadge}>
-  <Text style={styles.walletText}>👛 ₹{walletBalance}</Text>
-</TouchableOpacity>
-     
-        </View>
+        <TouchableOpacity style={{ marginRight: 10 }} onPress={() => setNotifOpen(true)}>
+          <Text style={{ fontSize: 18 }}>🔔</Text>
+          {unseen ? <View style={{ position: 'absolute', right: 0, top: 0, width: 7, height: 7, borderRadius: 4, backgroundColor: C.red }} /> : null}
+        </TouchableOpacity>
+        <TouchableOpacity style={{ marginRight: 10 }} onPress={() => setSettingsOpen(true)}>
+          <Text style={{ fontSize: 18 }}>⚙️</Text>
+        </TouchableOpacity>
       </View>
+
+      <TouchableOpacity onPress={() => setWalletOpen(true)} style={{ flexDirection: 'row', justifyContent: 'space-around', backgroundColor: '#141414', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#262626' }}>
+        {CURRENCIES.map((c) => (
+          <Text key={c.cur} style={{ color: c.color, fontWeight: 'bold', fontSize: 13 }}>{c.icon + ' ' + fmt(balances[c.cur])}</Text>
+        ))}
+        <Text style={{ color: C.green, fontWeight: 'bold', fontSize: 12 }}>👛 Wallet</Text>
+      </TouchableOpacity>
 
       <View style={styles.tabBar}>
-        <TouchableOpacity style={[styles.tabItem, activeTab === 'contests' && styles.activeTab]} onPress={() => setActiveTab('contests')}><Text style={styles.tabText}>🔥 Contests</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabItem, activeTab === 'mycontests' && styles.activeTab]} onPress={() => setActiveTab('mycontests')}><Text style={styles.tabText}>🎯 My Contests</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.tabItem, activeTab === 'profile' && styles.activeTab]} onPress={() => setActiveTab('profile')}><Text style={styles.tabText}>👤 Profile</Text></TouchableOpacity>
-
-      {phoneNumber === ADMIN_PHONE && (
-          <TouchableOpacity style={[styles.tabItem, activeTab === 'admin' && styles.activeTab]} onPress={() => setActiveTab('admin')}><Text style={{ color: '#e50914', fontWeight: 'bold', fontSize: 11 }}>⚡ Admin</Text></TouchableOpacity>
-        )}
+        <TouchableOpacity style={[styles.tabItem, tab === 'contests' && styles.activeTab]} onPress={() => setTab('contests')}><Text style={styles.tabText}>🔥 Contests</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.tabItem, tab === 'mycontests' && styles.activeTab]} onPress={() => setTab('mycontests')}><Text style={styles.tabText}>🎯 My Contests</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.tabItem, tab === 'profile' && styles.activeTab]} onPress={() => setTab('profile')}><Text style={styles.tabText}>👤 Profile</Text></TouchableOpacity>
+        {isAdmin ? (
+          <TouchableOpacity style={[styles.tabItem, tab === 'admin' && styles.activeTab]} onPress={() => setTab('admin')}>
+            <Text style={{ color: C.red, fontWeight: 'bold', fontSize: 11 }}>⚡ Admin</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
-      {activeTab === 'contests' && (
+      {tab === 'contests' ? (
         <View style={styles.listSection}>
-          <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-            {['ALL', 'Bollywood', 'Hollywood', 'Tollywood'].map(cat => (
-              <TouchableOpacity key={cat} style={[styles.filterChip, selectedCategory === cat && styles.activeFilterChip]} onPress={() => setSelectedCategory(cat)}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
+            {['ALL'].concat(CATEGORIES).map((cat) => (
+              <TouchableOpacity key={cat} style={[styles.filterChip, category === cat && styles.activeFilterChip]} onPress={() => setCategory(cat)}>
                 <Text style={{ color: '#fff', fontSize: 11 }}>{cat}</Text>
               </TouchableOpacity>
             ))}
           </View>
+          <Btn title="🔑 Private Room me join karein" color="#6a1b9a" small onPress={() => setRoomModal({ movie: null })} style={{ marginBottom: 8 }} />
           <FlatList
             data={filteredMovies}
-            keyExtractor={(item, index) => index.toString()}
-            ListEmptyComponent={<Text style={{ color: '#aaa', textAlign: 'center', marginTop: 40 }}>No Contests Active.</Text>}
+            keyExtractor={(item) => item.id}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            ListEmptyComponent={<Text style={{ color: C.sub, textAlign: 'center', marginTop: 40 }}>Abhi koi contest active nahi hai.</Text>}
             renderItem={({ item }) => {
-              const locked = isContestLocked(item.release_date);
-              const topWinner = winnersList[`${item.title?.toLowerCase()}_99`] || winnersList[`${item.title?.toLowerCase()}_49`] || winnersList[`${item.title?.toLowerCase()}_9`];
-              const bannerUri = (item.banner && item.banner.startsWith('http')) ? item.banner : ((item.banner?.startsWith('data:') && item.banner.length < 600000) ? item.banner : 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500');
-
+              const locked = isLocked(item);
+              const official = item.actual_collection !== null && item.actual_collection !== undefined;
               return (
-                <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => { setSelectedMovie(item); setMovieDetailModal(true); }}>
+                <TouchableOpacity style={styles.card} activeOpacity={0.85} onPress={() => setDetailMovie(item)}>
                   <View style={{ position: 'relative' }}>
-                    <Image source={{ uri: bannerUri }} style={styles.bannerImage} resizeMode="cover" />
-                    {topWinner && topWinner.actualCollection && (
-                      <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: '#00ff87' }}>
-                        <Text style={{ color: '#aaa', fontSize: 9, fontWeight: 'bold' }}>DAY 1 OFFICIAL</Text>
-                        <Text style={{ color: '#00ff87', fontSize: 18, fontWeight: 'bold' }}>{topWinner.actualCollection} CR</Text>
+                    <Image source={{ uri: item.banner_url || PLACEHOLDER }} style={styles.bannerImage} resizeMode="cover" />
+                    {official ? (
+                      <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.green }}>
+                        <Text style={{ color: C.sub, fontSize: 9, fontWeight: 'bold' }}>DAY 1 OFFICIAL</Text>
+                        <Text style={{ color: C.green, fontSize: 18, fontWeight: 'bold' }}>{fmt(item.actual_collection) + ' CR'}</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
-
                   <View style={styles.cardDetails}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={styles.movieTitle}>{item.title}</Text>
-                      <TouchableOpacity 
-                        style={{ backgroundColor: item.trailer_url ? '#e50914' : '#333', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 }}
-                        onPress={() => item.trailer_url ? Linking.openURL(item.trailer_url) : alert('🎬 Trailer coming soon!')}
+                      <Text style={[styles.movieTitle, { flex: 1 }]}>{item.title}</Text>
+                      <TouchableOpacity
+                        style={{ backgroundColor: item.trailer_url ? C.red : '#333', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 }}
+                        onPress={() => {
+                          if (item.trailer_url) Linking.openURL(item.trailer_url).catch(() => notify('Link nahi khul paya.'));
+                          else notify('Trailer jaldi aayega!');
+                        }}
                       >
                         <Text style={{ color: '#fff', fontSize: 9, fontWeight: 'bold' }}>{item.trailer_url ? '▶ Trailer' : '⏳ No Trailer'}</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ color: '#888', fontSize: 11, marginTop: 4 }}>📅 Release Date: {item.release_date}</Text>
-
+                    <Text style={{ color: '#888', fontSize: 11, marginTop: 4 }}>{'📅 Release Date: ' + item.release_date + '  |  ' + item.category}</Text>
                     <View style={styles.actionRow}>
-                      {topWinner ? (
-                        <View style={{ flex: 1, marginRight: 6 }}>
-                          <Text style={{ color: '#FFD700', fontWeight: 'bold', fontSize: 11 }}>👑 Winner: {topWinner.userName}</Text>
-                          <Text style={{ color: '#00ff87', fontWeight: 'bold', fontSize: 11 }}>💰 Prize: ₹{topWinner.prize}</Text>
-                        </View>
-                      ) : (
-                        <View style={{ flex: 1, marginRight: 6 }}>
-                          <Text style={{ color: '#00ff87', fontWeight: 'bold', fontSize: 11 }}>Status: Contests Active</Text>
-                        </View>
-                      )}
-
+                      <Text style={{ color: official ? C.gold : C.green, fontWeight: 'bold', fontSize: 11, flex: 1 }}>
+                        {official ? '🏆 Result aa gaya' : (locked ? '🔒 Contest locked' : '🟢 Contests open')}
+                      </Text>
                       {locked ? (
-                        <View style={styles.closedBtn}><Text style={{ color: '#aaa', fontSize: 11, fontWeight: 'bold' }}>🔒 Locked</Text></View>
+                        <View style={styles.closedBtn}><Text style={{ color: C.sub, fontSize: 11, fontWeight: 'bold' }}>Dekhein ➔</Text></View>
                       ) : (
                         <View style={styles.predictBtn}><Text style={styles.predictBtnText}>View Contests ➔</Text></View>
                       )}
@@ -421,156 +378,143 @@ export default function App() {
             }}
           />
         </View>
-      )}
+      ) : null}
 
-      {activeTab === 'mycontests' && (
+      {tab === 'mycontests' ? (
         <View style={styles.listSection}>
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>🎯 My Joined Contests</Text>
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold', marginBottom: 10 }}>🎯 Meri entries</Text>
           <FlatList
-            data={userJoinedMovies}
-            keyExtractor={(item, index) => index.toString()}
-            ListEmptyComponent={<Text style={{ color: '#aaa', textAlign: 'center', marginTop: 40 }}>You haven't joined any contest yet.</Text>}
+            data={entries}
+            keyExtractor={(item) => item.id}
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            ListEmptyComponent={<Text style={{ color: C.sub, textAlign: 'center', marginTop: 40 }}>Aapne abhi koi contest join nahi kiya.</Text>}
             renderItem={({ item }) => {
-              const locked = isContestLocked(item.release_date);
-              const myPreds = leaderboardData.filter(p => p.movie_title?.toLowerCase() === item.title?.toLowerCase() && p.user_phone?.includes(phoneNumber));
+              const mv = movieById(item.movie_id);
+              if (!mv) return null;
+              const info = curInfo(item.cur);
+              const locked = isLocked(mv);
               return (
-                <View style={styles.card}>
-                  <View style={{ padding: 12 }}>
-                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>🎬 {item.title}</Text>
-                    <Text style={{ color: '#00ff87', fontSize: 12, marginTop: 4 }}>My Predictions:</Text>
-                    {myPreds.map((p, idx) => (
-                      <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, backgroundColor: '#222', padding: 6, borderRadius: 4 }}>
-                        <Text style={{ color: '#ccc', fontSize: 11 }}>• Contest ₹{p.entry_fee || 9}: <Text style={{ color: '#00ff87', fontWeight: 'bold' }}>₹{p.predicted_amount} Cr</Text> {p.private_code ? `(Private: ${p.private_code})` : ''}</Text>
-                        {!locked ? (
-                          <TouchableOpacity style={{ backgroundColor: '#2196F3', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4 }} onPress={() => { setSelectedMovie(item); setSelectedFee(p.entry_fee || 9); setPredictionVal(String(p.predicted_amount)); setIsEditingPrediction(true); setEditingPredIndex(leaderboardData.indexOf(p)); setPredictModal(true); }}>
-                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: 'bold' }}>✏️ Edit</Text>
-                          </TouchableOpacity>
-                        ) : (
-                          <Text style={{ color: '#777', fontSize: 9 }}>🔒 Locked</Text>
-                        )}
-                      </View>
-                    ))}
+                <View style={[styles.card, { padding: 12 }]}>
+                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: 'bold' }}>{'🎬 ' + mv.title}</Text>
+                  <Text style={{ color: info.color, fontSize: 12, marginTop: 4 }}>
+                    {info.icon + ' ' + info.label + (item.room_code ? ' | Room ' + item.room_code : ' | Public contest') + ' | Entry ' + fmt(item.fee)}
+                  </Text>
+                  <Text style={{ color: '#ddd', fontSize: 13, marginTop: 4 }}>{'Meri prediction: ' + fmt(item.prediction) + ' Cr'}</Text>
+                  {item.final_rank ? (
+                    <Text style={{ color: C.gold, fontSize: 12, marginTop: 4 }}>
+                      {'Rank #' + item.final_rank + (Number(item.prize) > 0 ? '  |  🏆 Jeete: ' + fmt(item.prize) + ' ' + info.icon : '')}
+                    </Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                    {!locked ? (
+                      <Btn title="✏️ Edit" small color={C.blue} style={{ marginRight: 8 }} onPress={() => setPredict({ movie: mv, cur: item.cur, room: item.room_code, entry: item })} />
+                    ) : (
+                      <Text style={{ color: '#777', fontSize: 11, marginRight: 8, alignSelf: 'center' }}>🔒 Locked</Text>
+                    )}
+                    <Btn title="📊 Leaderboard" small color="#333" onPress={() => setBoard({ movie: mv, cur: item.cur, room: item.room_code })} />
                   </View>
                 </View>
               );
             }}
           />
         </View>
-      )}
+      ) : null}
 
-      {activeTab === 'profile' && (
-        <View style={styles.listSection}>
+      {tab === 'profile' ? (
+        <ScrollView style={styles.listSection}>
           <View style={styles.adminCard}>
-            <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>👤 {userName}</Text>
-            <Text style={{ color: '#aaa', fontSize: 12 }}>📞 +91 {phoneNumber}</Text>
-            <View style={{ marginTop: 15, padding: 12, backgroundColor: '#222', borderRadius: 8 }}>
-              <Text style={{ color: '#aaa', fontSize: 11 }}>Wallet Balance:</Text>
-              <Text style={{ color: '#00ff87', fontSize: 24, fontWeight: 'bold' }}>₹{walletBalance}</Text>
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>{'👤 ' + (profile ? profile.name : '')}</Text>
+            <Text style={{ color: C.sub, fontSize: 12 }}>{'✉️ ' + getEmail()}</Text>
+            <Text style={{ color: C.sub, fontSize: 12 }}>{'📞 +91 ' + (profile && profile.phone ? profile.phone : '-')}</Text>
+            <View style={{ marginTop: 14, padding: 12, backgroundColor: C.card2, borderRadius: 8 }}>
+              <Text style={{ color: C.sub, fontSize: 11, marginBottom: 6 }}>Wallet Balance</Text>
+              {CURRENCIES.map((c) => (
+                <Text key={c.cur} style={{ color: c.color, fontSize: 16, fontWeight: 'bold', marginBottom: 2 }}>
+                  {c.icon + ' ' + c.label + ': ' + fmt(balances[c.cur])}
+                </Text>
+              ))}
             </View>
+            <Btn title="👛 Wallet kholein" onPress={() => setWalletOpen(true)} style={{ marginTop: 12 }} />
+            <Btn title="📜 Terms & Conditions" color="#333" onPress={() => setTermsOpen(true)} style={{ marginTop: 8 }} />
+            <Btn title="🚪 Logout" color="#333" onPress={doLogout} style={{ marginTop: 8 }} />
+            <Text style={{ color: '#555', fontSize: 10, textAlign: 'center', marginTop: 12 }}>{'Version ' + APP_VERSION}</Text>
           </View>
-        </View>
-      )}
+        </ScrollView>
+      ) : null}
 
-      {activeTab === 'admin' && (
-        <Admin 
-          moviesList={moviesList}
-          adminWallet={adminWallet}
-          leaderboardData={leaderboardData}
-          winnersList={winnersList}
-          winnerLogs={winnerLogs}
-          onPublish={async (t, c, r, l, b, tr) => {
-            const newMovieObj = { title: t, category: c, release_date: r, lock_date: l, banner: b, trailer_url: tr, entry_fee: 9 };
-            try { await fetch(`${SUPABASE_URL}/rest/v1/Movies`, { method: 'POST', headers: getHeaders(), body: JSON.stringify(newMovieObj) }); } catch(e){}
-            setMoviesList(prev => [newMovieObj, ...prev]);
-          }}
-          onWinner={handleDeclareWinner} 
-          onAddWallet={(u, a) => setWalletBalance(p => p + parseFloat(a))}
-          onAutoFetch={async (t) => {
-            try {
-              let res = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=15d2ea6d0dc1d476efbca3eba219bbf0&query=${encodeURIComponent(t)}`);
-              let data = await res.json();
-              if (data?.results?.length > 0) return { title: data.results[0].title, release_date: data.results[0].release_date || '2026-10-10', banner: `https://image.tmdb.org/t/p/w500${data.results[0].poster_path}` };
-            } catch(e){}
-            return null;
-          }}
-          onDeleteMovie={async (t) => {
-            setMoviesList(prev => prev.filter(m => m.title !== t));
-            try { await fetch(`${SUPABASE_URL}/rest/v1/Movies?title=eq.${encodeURIComponent(t)}`, { method: 'DELETE', headers: getHeaders() }); } catch(e){}
-          }}
-          onUpdateMovie={async (id, t, c, r, b, tr) => {
-            setMoviesList(prev => prev.map(m => m.title === id ? { ...m, title: t, category: c, release_date: r, banner: b, trailer_url: tr } : m));
-          }}
-          onSendNotification={handleSendNotification}
-        />
-      )}
+      {tab === 'admin' && isAdmin ? <Admin movies={movies} onChanged={() => loadAll(true)} /> : null}
 
-      <MovieDetailModal 
-        visible={movieDetailModal} 
-        onClose={() => setMovieDetailModal(false)}
-        selectedMovie={selectedMovie}
-        isContestLocked={isContestLocked}
-        getContestStats={getContestStats}
-        winnersList={winnersList}
-        onOpenLeaderboard={(fee) => { setBoardFee(fee); setBoardModal(true); }}
-        onOpenPredict={(fee) => { setSelectedFee(fee); setIsEditingPrediction(false); setPredictModal(true); }}
-        onOpenPrivateRoom={() => { setMovieDetailModal(false); setPrivateRoomModal(true); }}
+      <MovieDetailModal
+        visible={!!detailMovie}
+        movie={detailMovie}
+        entries={entries}
+        onClose={() => setDetailMovie(null)}
+        onJoin={(cur) => setPredict({ movie: detailMovie, cur: cur, room: null, entry: null })}
+        onBoard={(cur, room) => setBoard({ movie: detailMovie, cur: cur, room: room })}
+        onRooms={() => setRoomModal({ movie: detailMovie })}
       />
 
-      <PrivateRoomModal 
-        visible={privateRoomModal}
-        onClose={() => setPrivateRoomModal(false)}
-        selectedMovie={selectedMovie}
-        onCreateRoom={handleCreatePrivateRoom}
-        onJoinRoom={handleJoinPrivateRoom}
-        privateRooms={privateRooms}
-        leaderboardData={leaderboardData}
-        currentUserName={userName}
+      <PrivateRoomModal
+        visible={!!roomModal}
+        movie={roomModal ? roomModal.movie : null}
+        onClose={() => setRoomModal(null)}
+        onJoinRoom={(r) => {
+          const mv = movieById(r.movie_id);
+          if (!mv) { notify('Is room ki movie nahi mili. App refresh karein.'); return; }
+          const mine = entries.find((e) => e.room_code === r.code);
+          if (mine) { notify('Aap is room me pehle se join ho. Prediction My Contests se badlein.'); return; }
+          setRoomModal(null);
+          setPredict({ movie: mv, cur: r.cur, room: r.code, entry: null });
+        }}
+        onBoard={(r) => {
+          const mv = movieById(r.movie_id);
+          if (mv) setBoard({ movie: mv, cur: r.cur, room: r.code });
+        }}
       />
 
-      <PredictModal 
-        visible={predictModal}
-        onClose={() => setPredictModal(false)}
-        selectedMovie={selectedMovie}
-        selectedFee={selectedFee}
-        predictionVal={predictionVal}
-        setPredictionVal={setPredictionVal}
-        onSubmit={handlePredictClick}
-        isEditing={isEditingPrediction}
-      />
-<WalletModal
-  visible={walletModal}
-  onClose={() => setWalletModal(false)}
-  walletBalance={walletBalance}
-  onRequestDeposit={(data) => {
-    console.log('Deposit Request:', data);
-    // Yahan aap Supabase/Backend request bhej sakte hain
-  }}
-  onRequestWithdraw={(data) => {
-    console.log('Withdrawal Request:', data);
-    // Yahan aap Supabase/Backend request bhej sakte hain
-  }}
-/>
-
-      <LeaderboardModal 
-        visible={boardModal}
-        onClose={() => setBoardModal(false)}
-        selectedMovie={selectedMovie}
-        boardFee={boardFee}
-        getContestStats={getContestStats}
-        winnersList={winnersList}
+      <PredictModal
+        visible={!!predict}
+        movie={predict ? predict.movie : null}
+        cur={predict ? predict.cur : 'coin'}
+        room={predict ? predict.room : null}
+        entry={predict ? predict.entry : null}
+        balances={balances}
+        onClose={() => setPredict(null)}
+        onDone={afterAction}
+        onNeedFunds={() => { setPredict(null); setWalletOpen(true); }}
       />
 
-      <NotificationsModal 
-        visible={notifModal}
-        onClose={() => setNotifModal(false)}
-        notifications={notifications}
-        onMarkSeen={() => setHasUnseenNotif(false)}
+      <LeaderboardModal
+        visible={!!board}
+        movie={board ? board.movie : null}
+        cur={board ? board.cur : 'coin'}
+        room={board ? board.room : null}
+        onClose={() => setBoard(null)}
       />
 
-      <SettingsModal 
-        visible={settingsModal}
-        onClose={() => setSettingsModal(false)}
+      <WalletModal
+        visible={walletOpen}
+        onClose={() => { setWalletOpen(false); loadAll(true); }}
+        balances={balances}
+        onChanged={() => loadAll(true)}
       />
+
+      <NotificationsModal
+        visible={notifOpen}
+        notifs={notifs}
+        onClose={() => { setNotifOpen(false); markSeen(); }}
+      />
+
+      <SettingsModal
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onTerms={() => setTermsOpen(true)}
+        onLogout={doLogout}
+        appVersion={APP_VERSION}
+      />
+
+      <TermsModal visible={termsOpen} onClose={() => setTermsOpen(false)} />
     </SafeAreaView>
   );
 }

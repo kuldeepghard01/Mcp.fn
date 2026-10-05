@@ -1,586 +1,384 @@
-import React, { useState } from 'react';
-import { View, Text, Modal, TouchableOpacity, ScrollView, TextInput, FlatList,Image ,Alert} from 'react-native';
-import { styles } from './styles';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, ActivityIndicator, Share } from 'react-native';
+import { C, notify, confirmBox, Btn, Field, Chips, Sheet, Tag, dateText } from './ui';
+import { rpc } from './api';
+import { CURRENCIES, curInfo, fmt, isLocked, TERMS } from './constants';
 
-export function DisclaimerModal({ visible, onAgree }) {
+// ---------- Movie ke contests ----------
+export function MovieDetailModal({ visible, movie, entries, onClose, onJoin, onBoard, onRooms }) {
+  const [stats, setStats] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const movieId = movie ? movie.id : null;
+
+  useEffect(() => {
+    if (!visible || !movieId) return;
+    let alive = true;
+    setLoading(true);
+    rpc('mcp_contest_stats', { p_movie: movieId })
+      .then((r) => { if (alive) setStats(r || []); })
+      .catch((e) => { if (alive) notify(e.message); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [visible, movieId]);
+
+  if (!movie) return null;
+  const locked = isLocked(movie);
+  const joined = (cur) => (entries || []).some((e) => e.movie_id === movie.id && e.cur === cur && !e.room_code);
+
   return (
-    <Modal visible={visible} transparent animationType="fade">
-      <View style={styles.topOverlayBg}>
-        <View style={[styles.modalCard, { borderColor: '#e50914', borderWidth: 1.5 }]}>
-          <Text style={[styles.modalTitle, { color: '#e50914', textAlign: 'center' }]}>⚠️ RESPONSIBLE GAMING & 18+ NOTICE</Text>
-          <ScrollView style={{ maxHeight: 200, marginVertical: 10 }}>
-            <Text style={{ color: '#fff', fontSize: 11 }}>
-              • You must be at least 18 years of age to participate in MCP Fantasy contests.{'\n'}
-              • Fantasy sports and prediction involve financial risk and may be addictive. Please play responsibly and at your own risk.{'\n'}
-              • Users from restricted states where paid fantasy contests are prohibited by law are not allowed to join paid contests.
+    <Sheet visible={visible} title={'🎬 ' + movie.title} onClose={onClose}>
+      <Text style={{ color: C.sub, fontSize: 11, marginBottom: 8 }}>
+        {'📅 Release: ' + movie.release_date + (locked ? '  (contest locked)' : '  (is din 12 AM par lock)')}
+      </Text>
+      {movie.actual_collection !== null && movie.actual_collection !== undefined ? (
+        <View style={{ backgroundColor: '#122e1e', padding: 10, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: C.green }}>
+          <Text style={{ color: C.sub, fontSize: 10 }}>DAY 1 OFFICIAL COLLECTION</Text>
+          <Text style={{ color: C.green, fontSize: 20, fontWeight: 'bold' }}>{fmt(movie.actual_collection) + ' Cr'}</Text>
+        </View>
+      ) : null}
+      {loading ? <ActivityIndicator color={C.red} style={{ marginVertical: 16 }} /> : null}
+      {stats.map((s) => {
+        const info = curInfo(s.cur);
+        const mine = joined(s.cur);
+        return (
+          <View key={s.cur} style={{ backgroundColor: C.card, borderRadius: 10, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: info.color }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: info.color, fontSize: 15, fontWeight: 'bold' }}>{info.icon + ' ' + info.label + ' Contest'}</Text>
+              {mine ? <Tag text="✅ Joined" color="#1b5e20" /> : null}
+            </View>
+            <Text style={{ color: C.sub, fontSize: 11, marginTop: 6 }}>{'Entry: 1 ' + info.label}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+              <Text style={{ color: '#ddd', fontSize: 12 }}>{'👥 Players: ' + s.entries}</Text>
+              <Text style={{ color: C.gold, fontSize: 12, fontWeight: 'bold' }}>{'🏆 Prize Pool: ' + fmt(s.prize_pool) + ' ' + info.icon}</Text>
+            </View>
+            <Text style={{ color: '#777', fontSize: 10, marginTop: 4 }}>Rank 1: 50%  |  Rank 2-8: 30%  |  Rank 9-25: 20%</Text>
+            <View style={{ flexDirection: 'row', marginTop: 10 }}>
+              {!locked && !mine ? (
+                <Btn title="Join Contest" style={{ flex: 1, marginRight: 6 }} onPress={() => onJoin(s.cur)} />
+              ) : null}
+              {!locked && mine ? (
+                <Btn title="✏️ Edit (My Contests)" color="#333" style={{ flex: 1, marginRight: 6 }} onPress={onClose} />
+              ) : null}
+              {locked ? <Btn title="🔒 Locked" color="#333" disabled style={{ flex: 1, marginRight: 6 }} /> : null}
+              <Btn title={s.settled ? '🏆 Results' : '📊 Leaderboard'} color={C.blue} style={{ flex: 1 }} onPress={() => onBoard(s.cur, null)} />
+            </View>
+          </View>
+        );
+      })}
+      <Btn title="🔑 Private Room (dosto ke saath)" color="#6a1b9a" onPress={onRooms} style={{ marginTop: 4, marginBottom: 6 }} />
+    </Sheet>
+  );
+}
+
+// ---------- Prediction lagana / badalna ----------
+export function PredictModal({ visible, movie, cur, room, entry, balances, onClose, onDone, onNeedFunds }) {
+  const [val, setVal] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [roomInfo, setRoomInfo] = useState(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    setVal(entry ? String(entry.prediction) : '');
+    setBusy(false);
+    setRoomInfo(null);
+    if (room) {
+      rpc('mcp_get_room', { p_code: room })
+        .then((r) => { if (r && r[0]) setRoomInfo(r[0]); })
+        .catch(() => {});
+    }
+  }, [visible, room, entry && entry.id]);
+
+  if (!movie) return null;
+  const useCur = room && roomInfo ? roomInfo.cur : cur;
+  const fee = room ? (roomInfo ? Number(roomInfo.fee) : 1) : 1;
+  const info = curInfo(useCur);
+  const have = Number((balances || {})[useCur] || 0);
+  const isEdit = !!entry;
+
+  const submit = async () => {
+    const v = parseFloat(val);
+    if (isNaN(v) || v < 0 || v > 5000) { notify('Sahi collection daalein (0 se 5000 Cr tak).'); return; }
+    if (!isEdit) {
+      if (have < fee) { notify('Aapke paas ' + info.label + ' kam hain. Pehle wallet se ' + info.label + ' kharidein.'); return; }
+      const ok = await confirmBox(fmt(fee) + ' ' + info.label + ' kat kar prediction ' + fmt(v) + ' Cr lagayein?');
+      if (!ok) return;
+    }
+    setBusy(true);
+    try {
+      if (isEdit) {
+        await rpc('mcp_edit_entry', { p_entry: entry.id, p_prediction: v });
+      } else {
+        await rpc('mcp_join_contest', { p_movie: movie.id, p_cur: useCur, p_prediction: v, p_room: room || null });
+      }
+      notify(isEdit ? 'Prediction badal gayi.' : 'Contest join ho gaya! Best of luck.');
+      onDone();
+    } catch (e) {
+      notify(e.message);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Sheet visible={visible} title={isEdit ? '✏️ Prediction badlein' : '🎯 Prediction lagayein'} onClose={onClose}>
+      <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{movie.title}</Text>
+      <Text style={{ color: info.color, fontSize: 12, marginVertical: 4 }}>
+        {(room ? 'Room ' + room + ' | ' : '') + info.icon + ' ' + info.label + ' contest | Entry: ' + fmt(fee) + ' ' + info.label}
+      </Text>
+      {!isEdit ? (
+        <Text style={{ color: C.sub, fontSize: 11, marginBottom: 8 }}>
+          {'Aapke paas: ' + fmt(have) + ' ' + info.icon}
+        </Text>
+      ) : null}
+      <Field label="Day 1 collection (Crore mein)" value={val} onChangeText={setVal} keyboardType="decimal-pad" placeholder="Jaise 12.5" maxLength={8} />
+      <Btn title={busy ? 'Please wait...' : (isEdit ? 'Update Prediction' : 'Confirm & Join')} onPress={submit} disabled={busy} />
+      {!isEdit && have < fee ? (
+        <Btn title="👛 Wallet kholein" color="#333" style={{ marginTop: 8 }} onPress={onNeedFunds} />
+      ) : null}
+      <Text style={{ color: '#777', fontSize: 10, marginTop: 10 }}>
+        Contest lock hone ke baad prediction badal nahi sakte. Lock hone par sabki prediction leaderboard me dikhti hai.
+      </Text>
+    </Sheet>
+  );
+}
+
+// ---------- Leaderboard / Results ----------
+export function LeaderboardModal({ visible, movie, cur, room, onClose }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [pool, setPool] = useState(null);
+  const movieId = movie ? movie.id : null;
+
+  useEffect(() => {
+    if (!visible || !movieId) return;
+    let alive = true;
+    setLoading(true);
+    setRows([]);
+    setPool(null);
+    (async () => {
+      try {
+        const r = await rpc('mcp_leaderboard', { p_movie: movieId, p_cur: cur, p_room: room || null });
+        if (alive) setRows(r || []);
+        if (room) {
+          const g = await rpc('mcp_get_room', { p_code: room });
+          if (alive && g && g[0]) setPool({ players: Number(g[0].joined), pool: Number(g[0].joined) * Number(g[0].fee) * 0.8, cur: g[0].cur });
+        } else {
+          const s = await rpc('mcp_contest_stats', { p_movie: movieId });
+          const one = (s || []).find((x) => x.cur === cur);
+          if (alive && one) setPool({ players: Number(one.entries), pool: Number(one.prize_pool), cur: cur });
+        }
+      } catch (e) {
+        if (alive) notify(e.message);
+      }
+      if (alive) setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [visible, movieId, cur, room]);
+
+  if (!movie) return null;
+  const locked = isLocked(movie);
+  const info = curInfo(pool ? pool.cur : cur);
+  const settled = rows.some((r) => Number(r.prize) > 0);
+
+  return (
+    <Sheet visible={visible} title={'📊 ' + movie.title} onClose={onClose}>
+      <Text style={{ color: info.color, fontSize: 12, fontWeight: 'bold' }}>
+        {(room ? 'Private Room ' + room : info.label + ' Contest')}
+      </Text>
+      {pool ? (
+        <Text style={{ color: C.gold, fontSize: 12, marginVertical: 4 }}>
+          {'👥 ' + pool.players + ' players  |  🏆 Pool: ' + fmt(pool.pool) + ' ' + info.icon}
+        </Text>
+      ) : null}
+      {movie.actual_collection !== null && movie.actual_collection !== undefined ? (
+        <Text style={{ color: C.green, fontSize: 12, marginBottom: 6 }}>{'Day 1 Official: ' + fmt(movie.actual_collection) + ' Cr'}</Text>
+      ) : null}
+      {!locked ? (
+        <Text style={{ color: C.sub, fontSize: 11, marginBottom: 8 }}>
+          Contest abhi open hai. Dusron ki prediction lock hone ke baad dikhegi. Neeche sirf aapki entry hai.
+        </Text>
+      ) : null}
+      {loading ? <ActivityIndicator color={C.red} style={{ marginVertical: 16 }} /> : null}
+      {!loading && rows.length === 0 ? (
+        <Text style={{ color: C.sub, textAlign: 'center', marginVertical: 20 }}>Abhi koi entry nahi.</Text>
+      ) : null}
+      {rows.map((r, i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: 'row', alignItems: 'center', backgroundColor: r.is_me ? '#1a2a3a' : C.card,
+            padding: 10, borderRadius: 8, marginBottom: 6, borderWidth: 1, borderColor: r.is_me ? C.blue : '#282828',
+          }}
+        >
+          <Text style={{ color: C.gold, fontWeight: 'bold', width: 34 }}>{settled ? ('#' + r.pos) : '•'}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>{r.player + (r.is_me ? ' (You)' : '')}</Text>
+            <Text style={{ color: C.sub, fontSize: 11 }}>
+              {'Prediction: ' + fmt(r.prediction) + ' Cr' + (r.diff !== null && r.diff !== undefined ? '  |  Farak: ' + fmt(r.diff) : '')}
             </Text>
-          </ScrollView>
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#00ff87' }]} onPress={onAgree}>
-            <Text style={{ color: '#000', fontWeight: 'bold' }}>I Agree & Continue (18+)</Text>
-          </TouchableOpacity>
+          </View>
+          {Number(r.prize) > 0 ? (
+            <Text style={{ color: C.green, fontWeight: 'bold', fontSize: 13 }}>{'+' + fmt(r.prize) + ' ' + info.icon}</Text>
+          ) : null}
         </View>
-      </View>
-    </Modal>
+      ))}
+    </Sheet>
   );
 }
 
-export function MovieDetailModal({ visible, onClose, selectedMovie, isContestLocked, getContestStats, winnersList, onOpenLeaderboard, onOpenPredict, onOpenPrivateRoom }) {
-  const [showWinningsFee, setShowWinningsFee] = useState(null);
+// ---------- Private Rooms ----------
+export function PrivateRoomModal({ visible, movie, onClose, onJoinRoom, onBoard }) {
+  const [code, setCode] = useState('');
+  const [cur, setCur] = useState('coin');
+  const [fee, setFee] = useState('1');
+  const [spots, setSpots] = useState('10');
+  const [busy, setBusy] = useState(false);
+  const [mine, setMine] = useState([]);
+  const [created, setCreated] = useState('');
 
-  if (!selectedMovie) return null;
-  
-  const locked = isContestLocked(selectedMovie.release_date);
-  const isWinnerDeclaredAny = Object.keys(winnersList).some(k => k.startsWith(selectedMovie.title?.toLowerCase()));
-  const isContestClosedFully = locked || isWinnerDeclaredAny;
+  const load = async () => {
+    try {
+      const r = await rpc('mcp_my_rooms', {});
+      setMine((r || []).filter((x) => !movie || x.movie_id === movie.id));
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    if (visible) { setCode(''); setCreated(''); load(); }
+  }, [visible, movie && movie.id]);
+
+  const join = async (c) => {
+    const clean = String(c || '').trim().toUpperCase();
+    if (clean.length < 4) { notify('Room code daalein.'); return; }
+    setBusy(true);
+    try {
+      const r = await rpc('mcp_get_room', { p_code: clean });
+      if (!r || !r[0]) { notify('Ye room nahi mila. Code check karein.'); }
+      else if (r[0].locked) { notify('Is room ka contest lock ho chuka hai.'); }
+      else if (Number(r[0].joined) >= Number(r[0].spots)) { notify('Room full hai.'); }
+      else { onJoinRoom(r[0]); }
+    } catch (e) {
+      notify(e.message);
+    }
+    setBusy(false);
+  };
+
+  const create = async () => {
+    const f = parseFloat(fee);
+    const s = parseInt(spots, 10);
+    if (isNaN(f) || f < 1 || f > 1000) { notify('Entry 1 se 1000 ke beech rakhein.'); return; }
+    if (isNaN(s) || s < 2 || s > 100) { notify('Spots 2 se 100 ke beech rakhein.'); return; }
+    setBusy(true);
+    try {
+      const c = await rpc('mcp_create_room', { p_movie: movie.id, p_cur: cur, p_fee: f, p_spots: s });
+      setCreated(c);
+      load();
+    } catch (e) {
+      notify(e.message);
+    }
+    setBusy(false);
+  };
+
+  const shareCode = async (c) => {
+    try {
+      await Share.share({ message: 'MCP Fantasy me mere private room me join karo! Movie: ' + (movie ? movie.title : '') + ' | Room code: ' + c });
+    } catch (e) {}
+  };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBg}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>🎬 {selectedMovie.title}</Text>
-          <Text style={{ color: '#aaa', fontSize: 11, marginBottom: 10 }}>📅 Release Date: {selectedMovie.release_date}</Text>
+    <Sheet visible={visible} title="🔑 Private Rooms" onClose={onClose}>
+      <Text style={{ color: '#fff', fontWeight: 'bold', marginBottom: 6 }}>Room code se join karein</Text>
+      <Field value={code} onChangeText={setCode} placeholder="PR-XXXXXX" autoCapitalize="characters" maxLength={12} />
+      <Btn title="Join Room" onPress={() => join(code)} disabled={busy} color="#6a1b9a" />
 
-          {isContestClosedFully && (
-            <View style={{ backgroundColor: '#2a1212', padding: 8, borderRadius: 6, marginBottom: 10, borderWidth: 1, borderColor: '#e50914' }}>
-              <Text style={{ color: '#e50914', fontWeight: 'bold', fontSize: 11, textAlign: 'center' }}>🔒 Contests Closed & Winner Declared for this Movie</Text>
+      {movie ? (
+        <View style={{ marginTop: 18 }}>
+          <Text style={{ color: '#fff', fontWeight: 'bold', marginBottom: 6 }}>{'Naya room banayein: ' + movie.title}</Text>
+          <Chips
+            options={CURRENCIES.map((c) => ({ key: c.cur, label: c.icon + ' ' + c.label }))}
+            value={cur}
+            onChange={setCur}
+          />
+          <Field label="Entry (kitne units)" value={fee} onChangeText={setFee} keyboardType="decimal-pad" maxLength={6} />
+          <Field label="Kitne players (2 se 100)" value={spots} onChangeText={setSpots} keyboardType="number-pad" maxLength={3} />
+          <Btn title="Room Banayein" onPress={create} disabled={busy} />
+          {created ? (
+            <View style={{ backgroundColor: '#122e1e', padding: 10, borderRadius: 8, marginTop: 10 }}>
+              <Text style={{ color: C.green, fontWeight: 'bold' }}>{'Room ban gaya: ' + created}</Text>
+              <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                <Btn title="📤 Share Code" small color={C.blue} onPress={() => shareCode(created)} style={{ marginRight: 8 }} />
+                <Btn title="Khud join karein" small onPress={() => join(created)} />
+              </View>
             </View>
-          )}
-
-          <ScrollView style={{ maxHeight: 360 }}>
-            {[9, 49, 99].map(fee => {
-              const stats = getContestStats(selectedMovie.title, fee);
-              const winner = winnersList[`${selectedMovie.title?.toLowerCase()}_${fee}`];
-
-              const rank1 = Math.round(stats.totalPrizePool * 0.50);
-              const rank2_8_each = Math.round((stats.totalPrizePool * 0.30) / 7);
-              const rank9_25_each = Math.round((stats.totalPrizePool * 0.20) / 17);
-
-              return (
-                <View key={fee} style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333' }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>₹{fee} Contest Pool</Text>
-                    <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <TouchableOpacity onPress={() => setShowWinningsFee(showWinningsFee === fee ? null : fee)}>
-                        <Text style={{ color: '#FFD700', fontSize: 11, textDecorationLine: 'underline' }}>🎁 Winnings</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => onOpenLeaderboard(fee)}>
-                        <Text style={{ color: '#00ff87', fontSize: 11, textDecorationLine: 'underline' }}>Leaderboard ({stats.entriesCount})</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {showWinningsFee === fee && (
-                    <View style={{ backgroundColor: '#151515', padding: 8, borderRadius: 6, marginVertical: 6, borderWidth: 1, borderColor: '#FFD700' }}>
-                      <Text style={{ color: '#FFD700', fontSize: 11, fontWeight: 'bold' }}>🏆 Prize Pool Split (₹{stats.totalPrizePool})</Text>
-                      <Text style={{ color: '#fff', fontSize: 10 }}>🥇 1st Rank: ₹{rank1} (50%)</Text>
-                      <Text style={{ color: '#fff', fontSize: 10 }}>🥈 Ranks 2-8: ₹{rank2_8_each} / each (30%)</Text>
-                      <Text style={{ color: '#fff', fontSize: 10 }}>🥉 Ranks 9-25: ₹{rank9_25_each} / each (20%)</Text>
-                    </View>
-                  )}
-
-                  {winner ? (
-                    <View style={{ marginTop: 6, backgroundColor: '#2b2b10', padding: 6, borderRadius: 4 }}>
-                      <Text style={{ color: '#FFD700', fontWeight: 'bold', fontSize: 11 }}>👑 Winner: {winner.userName}</Text>
-                      <Text style={{ color: '#00ff87', fontWeight: 'bold', fontSize: 11 }}>💰 Prize Paid: ₹{winner.prize}</Text>
-                    </View>
-                  ) : (
-                    <View style={{ marginTop: 6, flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={{ color: '#aaa', fontSize: 11 }}>Prize Pool: <Text style={{ color: '#00ff87', fontWeight: 'bold' }}>₹{stats.totalPrizePool}</Text></Text>
-                      <Text style={{ color: '#aaa', fontSize: 11 }}>1st Rank: <Text style={{ color: '#FFD700', fontWeight: 'bold' }}>₹{stats.rank1Prize}</Text></Text>
-                    </View>
-                  )}
-
-                  {!winner && (
-                    <View style={{ marginTop: 8 }}>
-                      {isContestClosedFully ? (
-                        <View style={styles.closedBtn}><Text style={{ color: '#aaa', textAlign: 'center', fontSize: 11 }}>🔒 Entry Closed</Text></View>
-                      ) : (
-                        <TouchableOpacity style={styles.primaryBtn} onPress={() => onOpenPredict(fee)}>
-                          <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center', fontSize: 11 }}>Predict Now (₹{fee})</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  )}
-                </View>
-              );
-            })}
-
-            {!isContestClosedFully && (
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#8a2be2', marginTop: 5 }]} onPress={onOpenPrivateRoom}>
-                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>🔒 Private Contest Room (Create / Join)</Text>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#333', marginTop: 10 }]} onPress={onClose}>
-            <Text style={{ color: '#fff', textAlign: 'center' }}>Close</Text>
-          </TouchableOpacity>
+          ) : null}
         </View>
-      </View>
-    </Modal>
-  );
-}
+      ) : null}
 
-export function PredictModal({ visible, onClose, selectedMovie, selectedFee, predictionVal, setPredictionVal, onSubmit, isEditing }) {
-  if (!selectedMovie) return null;
-
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.topOverlayBg}>
-        <View style={[styles.modalCard, { borderColor: '#00ff87', borderWidth: 1.5 }]}>
-          <Text style={styles.modalTitle}>{isEditing ? '✏️ Edit Prediction' : '🎯 Prediction for ₹' + selectedFee + ' Contest'}</Text>
-          <Text style={{ color: '#00ff87', fontWeight: 'bold', fontSize: 13, marginTop: 4 }}>🎬 {selectedMovie.title}</Text>
-
-          <View style={{ backgroundColor: '#282512', padding: 8, borderRadius: 6, marginVertical: 8, borderWidth: 1, borderColor: '#FFD700' }}>
-            <Text style={{ color: '#FFD700', fontWeight: 'bold', fontSize: 11 }}>💡 Smart Prediction Hint & Industry Buzz:</Text>
-            <Text style={{ color: '#fff', fontSize: 10, marginTop: 2 }}>
-              • Estimated Day 1 Opening Range: ₹25.00 Cr - ₹65.00 Cr{'\n'}
-              • Tip: Enter precise decimal values (e.g., 42.80) to maximize win margin.
+      <Text style={{ color: '#fff', fontWeight: 'bold', marginTop: 18, marginBottom: 6 }}>Mere rooms</Text>
+      {mine.length === 0 ? <Text style={{ color: C.sub, fontSize: 12 }}>Abhi koi room nahi.</Text> : null}
+      {mine.map((r) => {
+        const info = curInfo(r.cur);
+        return (
+          <View key={r.code} style={{ backgroundColor: C.card, padding: 10, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: '#282828' }}>
+            <Text style={{ color: '#fff', fontWeight: 'bold' }}>{r.code + (r.created_by_me ? '  (Aapka)' : '')}</Text>
+            <Text style={{ color: C.sub, fontSize: 11 }}>{r.movie_title}</Text>
+            <Text style={{ color: info.color, fontSize: 11 }}>
+              {info.icon + ' Entry ' + fmt(r.fee) + ' | Players ' + r.joined + '/' + r.spots + (r.locked ? ' | Locked' : '')}
             </Text>
-          </View>
-
-          <TextInput
-            style={styles.input}
-            keyboardType="decimal-pad"
-            placeholder="Enter day one Box Office in Cr (e.g. 42.80)"
-            placeholderTextColor="#666"
-            value={predictionVal}
-            onChangeText={setPredictionVal}
-          />
-
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
-            <TouchableOpacity style={[styles.primaryBtn, { flex: 1, backgroundColor: '#333' }]} onPress={onClose}>
-              <Text style={{ color: '#fff' }}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.primaryBtn, { flex: 1, backgroundColor: '#00ff87' }]} onPress={onSubmit}>
-              <Text style={{ color: '#000', fontWeight: 'bold' }}>{isEditing ? 'Update Entry' : 'Submit Entry'}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-export function PrivateRoomModal({ visible, onClose, selectedMovie, onCreateRoom, onJoinRoom, privateRooms, leaderboardData, currentUserName }) {
-  const [tab, setTab] = useState('menu');
-  const [selectedFee, setSelectedFee] = useState(9);
-  const [customFee, setCustomFee] = useState('');
-  const [selectedSpots, setSelectedSpots] = useState(4);
-  const [customSpots, setCustomSpots] = useState('');
-
-  const [searchCode, setSearchCode] = useState('');
-  const [joinedRoomDetails, setJoinedRoomDetails] = useState(null);
-
-  if (!selectedMovie) return null;
-
-  const myCreatedRooms = privateRooms.filter(r => r.movie_title === selectedMovie.title && r.created_by === currentUserName);
-
-  const handleCreate = () => {
-    const fee = customFee ? parseFloat(customFee) : selectedFee;
-    const spots = customSpots ? parseInt(customSpots) : selectedSpots;
-    if (!fee || fee <= 0) return alert('Enter valid Entry Fee.');
-    if (!spots || spots < 2) return alert('Spots must be at least 2.');
-
-    onCreateRoom(selectedMovie.title, fee, spots);
-    setTab('menu');
-  };
-
-  const handleSearchRoom = () => {
-    if (!searchCode.trim()) return alert('Enter Room Code.');
-    const code = searchCode.trim().toUpperCase();
-    const found = privateRooms.find(r => r.code === code);
-    if (!found) return alert('Invalid Room Code!');
-
-    const joinedCount = leaderboardData.filter(p => p.private_code === code).length;
-    setJoinedRoomDetails({ ...found, joinedCount });
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBg}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>🔒 Private Contest ({selectedMovie.title})</Text>
-
-          {tab === 'menu' && (
-            <View style={{ marginTop: 15 }}>
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#e50914', marginBottom: 10 }]} onPress={() => setTab('create')}>
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>➕ Create Private Room</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#2196F3', marginBottom: 10 }]} onPress={() => setTab('join')}>
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>🔑 Join Private Room</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#8a2be2' }]} onPress={() => setTab('myrooms')}>
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>🏆 Created Rooms ({myCreatedRooms.length})</Text>
-              </TouchableOpacity>
+            <View style={{ flexDirection: 'row', marginTop: 6 }}>
+              <Btn title="📤 Share" small color="#333" onPress={() => shareCode(r.code)} style={{ marginRight: 8 }} />
+              <Btn title="📊 Leaderboard" small color={C.blue} onPress={() => onBoard(r)} />
             </View>
-          )}
-
-          {tab === 'myrooms' && (
-            <View style={{ marginTop: 10 }}>
-              <Text style={{ color: '#00ff87', fontWeight: 'bold', marginBottom: 8 }}>My Created Rooms:</Text>
-              <ScrollView style={{ maxHeight: 200 }}>
-                {myCreatedRooms.length === 0 ? (
-                  <Text style={{ color: '#666', textAlign: 'center', marginVertical: 15 }}>No rooms created by you yet.</Text>
-                ) : (
-                  myCreatedRooms.map((r, idx) => {
-                    const joined = leaderboardData.filter(p => p.private_code === r.code).length;
-                    return (
-                      <View key={idx} style={{ backgroundColor: '#222', padding: 8, borderRadius: 6, marginBottom: 6 }}>
-                        <Text style={{ color: '#FFD700', fontWeight: 'bold' }}>Code: {r.code}</Text>
-                        <Text style={{ color: '#ccc', fontSize: 11 }}>Fee: ₹{r.entry_fee} | Spots: {joined} / {r.spots}</Text>
-                      </View>
-                    );
-                  })
-                )}
-              </ScrollView>
-              <TouchableOpacity onPress={() => setTab('menu')} style={{ marginTop: 10 }}><Text style={{ color: '#aaa', textAlign: 'center' }}>⬅ Back</Text></TouchableOpacity>
-            </View>
-          )}
-
-          {tab === 'create' && (
-            <ScrollView style={{ marginTop: 10 }}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12, marginBottom: 4 }}>Select Entry Fee (₹):</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-                {[9, 49, 99].map(f => (
-                  <TouchableOpacity key={f} style={[styles.filterChip, selectedFee === f && !customFee && styles.activeFilterChip]} onPress={() => { setSelectedFee(f); setCustomFee(''); }}>
-                    <Text style={{ color: '#fff', fontSize: 11 }}>₹{f}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput style={styles.input} placeholder="Custom Entry Fee (₹)" placeholderTextColor="#666" keyboardType="numeric" value={customFee} onChangeText={setCustomFee} />
-
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12, marginTop: 6, marginBottom: 4 }}>Select Spots:</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-                {[4, 6, 30].map(s => (
-                  <TouchableOpacity key={s} style={[styles.filterChip, selectedSpots === s && !customSpots && styles.activeFilterChip]} onPress={() => { setSelectedSpots(s); setCustomSpots(''); }}>
-                    <Text style={{ color: '#fff', fontSize: 11 }}>{s} Spots</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <TextInput style={styles.input} placeholder="Custom Spots (e.g. 10)" placeholderTextColor="#666" keyboardType="numeric" value={customSpots} onChangeText={setCustomSpots} />
-
-              <TouchableOpacity style={[styles.primaryBtn, { marginTop: 10 }]} onPress={handleCreate}>
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Generate Room Code & Create</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setTab('menu')} style={{ marginTop: 10 }}><Text style={{ color: '#aaa', textAlign: 'center' }}>⬅ Back</Text></TouchableOpacity>
-            </ScrollView>
-          )}
-
-          {tab === 'join' && (
-            <View style={{ marginTop: 10 }}>
-              <TextInput style={styles.input} placeholder="Enter 6-Digit Room Code" placeholderTextColor="#666" value={searchCode} onChangeText={setSearchCode} autoCapitalize="characters" />
-              <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#2196F3' }]} onPress={handleSearchRoom}>
-                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Search Room</Text>
-              </TouchableOpacity>
-
-              {joinedRoomDetails && (
-                <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginTop: 12 }}>
-                  <Text style={{ color: '#00ff87', fontWeight: 'bold' }}>Room: {joinedRoomDetails.code}</Text>
-                  <Text style={{ color: '#fff', fontSize: 11, marginTop: 2 }}>💰 Entry Fee: ₹{joinedRoomDetails.entry_fee}</Text>
-                  <Text style={{ color: '#ccc', fontSize: 11, marginTop: 2 }}>👥 Spots: {joinedRoomDetails.joinedCount} / {joinedRoomDetails.spots}</Text>
-
-                  {joinedRoomDetails.joinedCount >= joinedRoomDetails.spots ? (
-                    <Text style={{ color: '#e50914', fontWeight: 'bold', marginTop: 6 }}>🔒 Room Full!</Text>
-                  ) : (
-                    <TouchableOpacity style={[styles.primaryBtn, { marginTop: 8 }]} onPress={() => { onJoinRoom(joinedRoomDetails); setTab('menu'); setJoinedRoomDetails(null); onClose(); }}>
-                      <Text style={{ color: '#fff', fontWeight: 'bold' }}>Join & Predict Now</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-              <TouchableOpacity onPress={() => setTab('menu')} style={{ marginTop: 12 }}><Text style={{ color: '#aaa', textAlign: 'center' }}>⬅ Back</Text></TouchableOpacity>
-            </View>
-          )}
-
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#333', marginTop: 12 }]} onPress={onClose}>
-            <Text style={{ color: '#fff', textAlign: 'center' }}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-export function LeaderboardModal({ visible, onClose, selectedMovie, boardFee, getContestStats, winnersList }) {
-  if (!selectedMovie) return null;
-  const stats = getContestStats(selectedMovie.title, boardFee);
-  const winnerInfo = winnersList[`${selectedMovie.title?.toLowerCase()}_${boardFee}`];
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBg}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>📊 Leaderboard (₹{boardFee} Pool)</Text>
-          <Text style={{ color: '#aaa', fontSize: 11, marginBottom: 10 }}>{selectedMovie.title}</Text>
-
-          <ScrollView style={{ maxHeight: 280 }}>
-            {stats.movieEntries.length === 0 ? (
-              <Text style={{ color: '#666', textAlign: 'center', marginVertical: 20 }}>No predictions in this pool yet.</Text>
-            ) : (
-              stats.movieEntries.map((p, idx) => {
-                const isWinner = winnerInfo && winnerInfo.userName === p.user_phone;
-                return (
-                  <View key={idx} style={{ backgroundColor: isWinner ? '#1b2d1f' : '#222', borderColor: isWinner ? '#00ff87' : '#333', borderWidth: 1, padding: 8, borderRadius: 6, marginBottom: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View>
-                      <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>#{idx + 1} {p.user_phone}</Text>
-                      <Text style={{ color: '#aaa', fontSize: 10 }}>Predicted: ₹{p.predicted_amount} Cr</Text>
-                    </View>
-                    {isWinner ? (
-                      <View style={{ backgroundColor: '#00ff87', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
-                        <Text style={{ color: '#000', fontWeight: 'bold', fontSize: 11 }}>🏆 Won ₹{winnerInfo.prize}</Text>
-                      </View>
-                    ) : (
-                      <Text style={{ color: '#00ff87', fontWeight: 'bold', fontSize: 12 }}>₹{p.predicted_amount} Cr</Text>
-                    )}
-                  </View>
-                );
-              })
-            )}
-          </ScrollView>
-
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#333', marginTop: 10 }]} onPress={onClose}>
-            <Text style={{ color: '#fff', textAlign: 'center' }}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-export function NotificationsModal({ visible, onClose, notifications, onMarkSeen }) {
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBg}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>🔔 Notifications</Text>
-          <FlatList
-            data={notifications}
-            keyExtractor={(item, index) => index.toString()}
-            ListEmptyComponent={<Text style={{ color: '#888', textAlign: 'center', marginVertical: 20 }}>No Notifications.</Text>}
-            renderItem={({ item }) => (
-              <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 6, marginBottom: 8 }}>
-                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{item.title}</Text>
-                <Text style={{ color: '#ccc', fontSize: 11, marginTop: 2 }}>{item.message}</Text>
-                <Text style={{ color: '#666', fontSize: 9, marginTop: 4 }}>{item.date}</Text>
-              </View>
-            )}
-          />
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#333', marginTop: 10 }]} onPress={() => { onMarkSeen(); onClose(); }}>
-            <Text style={{ color: '#fff', textAlign: 'center' }}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-export function SettingsModal({ visible, onClose }) {
-  const [tab, setTab] = useState('menu');
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBg}>
-        <View style={styles.modalCard}>
-          <Text style={styles.modalTitle}>⚙️ Settings & Support</Text>
-
-          {tab === 'menu' && (
-            <View style={{ marginTop: 10 }}>
-              <View style={{ backgroundColor: '#222', padding: 10, borderRadius: 8, marginBottom: 8 }}>
-                <Text style={{ color: '#00ff87', fontWeight: 'bold' }}>🎧 Help Center & Support</Text>
-                <Text style={{ color: '#fff', fontSize: 12, marginTop: 2 }}>Email Us: mcp85169@gmail.com</Text>
-              </View>
-
-              <TouchableOpacity style={{ backgroundColor: '#2a2a2a', padding: 10, borderRadius: 8, marginBottom: 6 }} onPress={() => setTab('terms')}>
-                <Text style={{ color: '#fff', fontSize: 12 }}>📜 Terms and Conditions</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={{ backgroundColor: '#2a2a2a', padding: 10, borderRadius: 8, marginBottom: 6 }} onPress={() => setTab('privacy')}>
-                <Text style={{ color: '#fff', fontSize: 12 }}>🔒 Privacy Policy</Text>
-              </TouchableOpacity>
-
-              <View style={{ backgroundColor: '#181818', padding: 8, borderRadius: 6, marginTop: 8 }}>
-                <Text style={{ color: '#666', fontSize: 10 }}>MCP Fantasy Pro v1.0.6</Text>
-              </View>
-            </View>
-          )}
-
-          {tab === 'terms' && (
-            <ScrollView style={{ marginTop: 10, maxHeight: 200 }}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Terms & Conditions</Text>
-              <Text style={{ color: '#ccc', fontSize: 11, marginTop: 4 }}>
-                1. Submit predictions before release date lock.{'\n'}
-                2. Entry fees deducted from wallet balance.{'\n'}
-                3. Winners calculated automatically using lowest difference.
-              </Text>
-              <TouchableOpacity onPress={() => setTab('menu')} style={{ marginTop: 10 }}><Text style={{ color: '#e50914', fontWeight: 'bold' }}>⬅ Back</Text></TouchableOpacity>
-            </ScrollView>
-          )}
-
-          {tab === 'privacy' && (
-            <ScrollView style={{ marginTop: 10, maxHeight: 200 }}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Privacy Policy</Text>
-              <Text style={{ color: '#ccc', fontSize: 11, marginTop: 4 }}>
-                User phone and name are kept strictly encrypted for authentic competition scoring.
-              </Text>
-              <TouchableOpacity onPress={() => setTab('menu')} style={{ marginTop: 10 }}><Text style={{ color: '#e50914', fontWeight: 'bold' }}>⬅ Back</Text></TouchableOpacity>
-            </ScrollView>
-          )}
-
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#333', marginTop: 10 }]} onPress={onClose}>
-            <Text style={{ color: '#fff', textAlign: 'center' }}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-export function WalletModal({ visible, onClose, walletBalance, onRequestDeposit, onRequestWithdraw, transactions = [] }) {
-  const [activeTab, setActiveTab] = useState('deposit'); // 'deposit', 'withdraw', 'history'
-  const [amount, setAmount] = useState('');
-  const [utr, setUtr] = useState('');
-  const [upiId, setUpiId] = useState('');
-const qrImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=9001641023@ibl&pn=MCP%20Fantasy&cu=INR";
-  const handleDepositSubmit = () => {
-    if (!amount || !utr) {
-      return Alert.alert('Error', 'Please enter Amount and 12-digit UTR/Transaction ID');
-    }
-    if (onRequestDeposit) {
-      onRequestDeposit({ amount: parseFloat(amount), utr, type: 'DEPOSIT', date: new Date().toLocaleTimeString() });
-    }
-    Alert.alert('Success', 'Deposit request submitted! Balance will update after Admin verification.');
-    setAmount('');
-    setUtr('');
-  };
-
-  const handleWithdrawSubmit = () => {
-    if (!amount || !upiId) {
-      return Alert.alert('Error', 'Please enter Amount and valid UPI ID');
-    }
-    if (parseFloat(amount) > walletBalance) {
-      return Alert.alert('Insufficient Balance', 'Your wallet balance is lower than requested amount.');
-    }
-    if (onRequestWithdraw) {
-      onRequestWithdraw({ amount: parseFloat(amount), upiId, type: 'WITHDRAWAL', date: new Date().toLocaleTimeString() });
-    }
-    Alert.alert('Success', 'Withdrawal request submitted! Admin will process payment shortly.');
-    setAmount('');
-    setUpiId('');
-  };
-
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalBg}>
-        <View style={[styles.modalCard, { maxHeight: '90%' }]}>
-          <Text style={styles.modalTitle}>👛 Wallet & Payments</Text>
-
-          <View style={{ backgroundColor: '#222', padding: 12, alignItems: 'center', borderRadius: 8, marginVertical: 10 }}>
-            <Text style={{ color: '#aaa', fontSize: 11 }}>Current Balance</Text>
-            <Text style={{ color: '#00ff87', fontSize: 26, fontWeight: 'bold' }}>₹{walletBalance}</Text>
           </View>
+        );
+      })}
+    </Sheet>
+  );
+}
 
-          {/* 3 Tabs: Add Cash, Withdraw, History */}
-          <View style={{ flexDirection: 'row', backgroundColor: '#222', borderRadius: 6, marginBottom: 10 }}>
-            <TouchableOpacity 
-              style={[styles.tabItem, activeTab === 'deposit' && styles.activeTab]} 
-              onPress={() => setActiveTab('deposit')}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 11 }}>+ Add Cash</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.tabItem, activeTab === 'withdraw' && styles.activeTab]} 
-              onPress={() => setActiveTab('withdraw')}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 11 }}>💸 Withdraw</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.tabItem, activeTab === 'history' && styles.activeTab]} 
-              onPress={() => setActiveTab('history')}>
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 11 }}>📜 History</Text>
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={{ maxHeight: 300 }}>
-            {activeTab === 'deposit' && (
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Scan QR Code & Pay</Text>
-                
-                {/* Fixed Image Tag */}
-                <Image 
-                  source={{ uri: qrImageUrl }} 
-                  style={{ width: 180, height: 180, borderRadius: 8, marginVertical: 10, alignSelf: 'center' }} 
-                  resizeMode="contain" 
-                />
-                
-                <Text style={{ color: '#aaa', fontSize: 10, textAlign: 'center', marginBottom: 8 }}>Scan with PhonePe, GPay, Paytm or UPI</Text>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter Paid Amount (₹)"
-                  placeholderTextColor="#666"
-                  keyboardType="number-pad"
-                  value={amount}
-                  onChangeText={setAmount}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter 12-digit UTR / Ref No."
-                  placeholderTextColor="#666"
-                  value={utr}
-                  onChangeText={setUtr}
-                />
-                <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#00ff87', width: '100%', marginTop: 6 }]} onPress={handleDepositSubmit}>
-                  <Text style={{ color: '#000', fontWeight: 'bold', textAlign: 'center' }}>Submit Deposit Request</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {activeTab === 'withdraw' && (
-              <View style={{ alignItems: 'center' }}>
-                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold', marginBottom: 10 }}>Withdraw Winnings to Bank/UPI</Text>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter Amount (₹)"
-                  placeholderTextColor="#666"
-                  keyboardType="number-pad"
-                  value={amount}
-                  onChangeText={setAmount}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter UPI ID (e.g. name@upi)"
-                  placeholderTextColor="#666"
-                  value={upiId}
-                  onChangeText={setUpiId}
-                />
-                <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#e50914', width: '100%', marginTop: 6 }]} onPress={handleWithdrawSubmit}>
-                  <Text style={{ color: '#fff', fontWeight: 'bold', textAlign: 'center' }}>Request Withdrawal</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {activeTab === 'history' && (
-              <View style={{ width: '100%' }}>
-                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold', marginBottom: 8 }}>Recent Wallet Transactions</Text>
-                {transactions.length === 0 ? (
-                  <Text style={{ color: '#888', textAlign: 'center', marginVertical: 20, fontSize: 11 }}>No transactions yet.</Text>
-                ) : (
-                  transactions.map((tx, idx) => (
-                    <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#1a1a1a', padding: 10, borderRadius: 6, marginBottom: 6 }}>
-                      <View>
-                        <Text style={{ color: tx.type === 'DEPOSIT' ? '#00ff87' : '#ff4757', fontWeight: 'bold', fontSize: 12 }}>{tx.type}</Text>
-                        <Text style={{ color: '#aaa', fontSize: 10 }}>{tx.date || 'Today'}</Text>
-                      </View>
-                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>₹{tx.amount}</Text>
-                    </View>
-                  ))
-                )}
-              </View>
-            )}
-          </ScrollView>
-
-          <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: '#333', marginTop: 12 }]} onPress={onClose}>
-            <Text style={{ color: '#fff', textAlign: 'center' }}>Close</Text>
-          </TouchableOpacity>
+// ---------- Notifications ----------
+export function NotificationsModal({ visible, notifs, onClose }) {
+  return (
+    <Sheet visible={visible} title="🔔 Notifications" onClose={onClose}>
+      {(!notifs || notifs.length === 0) ? (
+        <Text style={{ color: C.sub, textAlign: 'center', marginVertical: 20 }}>Abhi koi notification nahi.</Text>
+      ) : null}
+      {(notifs || []).map((n) => (
+        <View key={n.id} style={{ backgroundColor: C.card, padding: 10, borderRadius: 8, marginBottom: 8, borderWidth: 1, borderColor: '#282828' }}>
+          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{n.title}</Text>
+          <Text style={{ color: '#ccc', fontSize: 12, marginTop: 2 }}>{n.message}</Text>
+          <Text style={{ color: '#666', fontSize: 10, marginTop: 4 }}>{dateText(n.created_at)}</Text>
         </View>
+      ))}
+    </Sheet>
+  );
+}
+
+// ---------- Terms & Conditions ----------
+export function TermsModal({ visible, onClose }) {
+  return (
+    <Sheet visible={visible} title="📜 Terms & Conditions" onClose={onClose}>
+      {TERMS.map((s) => (
+        <View key={s.h} style={{ marginBottom: 12 }}>
+          <Text style={{ color: C.gold, fontWeight: 'bold', fontSize: 13 }}>{s.h}</Text>
+          <Text style={{ color: '#ccc', fontSize: 12, marginTop: 3, lineHeight: 18 }}>{s.t}</Text>
+        </View>
+      ))}
+    </Sheet>
+  );
+}
+
+// ---------- Settings ----------
+export function SettingsModal({ visible, onClose, onTerms, onLogout, appVersion }) {
+  return (
+    <Sheet visible={visible} title="⚙️ Settings" onClose={onClose}>
+      <TouchableOpacity onPress={onTerms} style={{ backgroundColor: C.card, padding: 14, borderRadius: 8, marginBottom: 8 }}>
+        <Text style={{ color: '#fff', fontSize: 13 }}>📜 Terms & Conditions / Privacy / Responsible Gaming</Text>
+      </TouchableOpacity>
+      <View style={{ backgroundColor: C.card, padding: 14, borderRadius: 8, marginBottom: 8 }}>
+        <Text style={{ color: '#fff', fontSize: 13 }}>ℹ️ MCP Fantasy</Text>
+        <Text style={{ color: C.sub, fontSize: 11, marginTop: 2 }}>{'Movie Collection Prediction  |  Version ' + appVersion}</Text>
       </View>
-    </Modal>
+      <Btn title="🚪 Logout" color="#333" onPress={onLogout} style={{ marginTop: 6 }} />
+    </Sheet>
   );
 }
