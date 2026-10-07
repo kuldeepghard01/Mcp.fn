@@ -5,11 +5,12 @@ const SESSION_KEY = '@mcp_session_v2';
 let session = null;
 let refreshing = null;
 
-const headers = (token) => ({
-  'Content-Type': 'application/json',
-  apikey: SUPABASE_KEY,
-  Authorization: 'Bearer ' + (token || SUPABASE_KEY),
-});
+const headers = (token) => {
+  const h = { 'Content-Type': 'application/json', apikey: SUPABASE_KEY };
+  if (token) h.Authorization = 'Bearer ' + token;
+  else if (String(SUPABASE_KEY).startsWith('eyJ')) h.Authorization = 'Bearer ' + SUPABASE_KEY;
+  return h;
+};
 
 const friendly = (m) => {
   const s = String(m || '');

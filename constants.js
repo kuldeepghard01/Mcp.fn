@@ -1,6 +1,6 @@
 // ---------- MCP Fantasy: settings ----------
-export const SUPABASE_URL = "https://zlgwkwdpswdnuuetzhle.supabase.co";
-export const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpsZ3drd2Rwc3dkbnV1ZXR6aGxlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTY0NTEyNjUsImV4cCI6MjA3MjAyNzI2NX0.cDTOhQUvBIw4PwqthRCP3Q_5pZUTq1nUEskWZvWVtMM";
+export const SUPABASE_URL = "https://zlgwkwdpwswdnuuetzhe.supabase.co";
+export const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpsZ3drd2Rwd3N3ZG51dWV0emhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MTI2NjIsImV4cCI6MjEwMzQ4ODY2Mn0.cOtOhQUvBiW4PwqthRCP3Q_5pZUTq1mUEakWZWVWIMM";
 export const TMDB_KEY = "15d2ea6d0dc1d476efbca3eba219bbf0";
 
 // Coins kharidne ke liye UPI (QR is ID se banta hai)
