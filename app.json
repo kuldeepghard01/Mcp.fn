@@ -2,6 +2,7 @@
   "expo": {
     "name": "MCP",
     "slug": "mcp",
+    "owner": "kd01s-team",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./icon.png",
@@ -21,7 +22,14 @@
       },
       "edgeToEdgeEnabled": true
     },
-    "plugins": ["expo-image-picker"],
-    "description": "My MCP is ready"
+    "plugins": [
+      "expo-image-picker"
+    ],
+    "description": "My MCP is ready",
+    "extra": {
+      "eas": {
+        "projectId": "16b35a4d-b6a6-4f6e-9460-e7b453e736ab"
+      }
+    }
   }
 }
