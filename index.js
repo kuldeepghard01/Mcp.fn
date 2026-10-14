@@ -1,3 +1,4 @@
+// MCP v3 FINAL (APK build)
 import { registerRootComponent } from 'expo';
 import React from 'react';
 import { View, Text, ScrollView, TouchableOpacity } from 'react-native';

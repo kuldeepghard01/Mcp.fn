@@ -1,3 +1,4 @@
+// MCP v3 FINAL (APK build)
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SUPABASE_URL, SUPABASE_KEY } from './constants';
 
@@ -14,13 +15,13 @@ const headers = (token) => {
 
 const friendly = (m) => {
   const s = String(m || '');
-  if (/Invalid login credentials/i.test(s)) return 'Email ya password galat hai.';
-  if (/User already registered/i.test(s)) return 'Ye email pehle se registered hai. Login karein.';
-  if (/Database error saving new user/i.test(s)) return 'Ye phone number ya email pehle se registered hai.';
-  if (/Email not confirmed/i.test(s)) return 'Email confirm nahi hua. Mail me aaya link kholein.';
-  if (/Password should be at least/i.test(s)) return 'Password kam se kam 8 akshar ka rakhein.';
-  if (/rate limit/i.test(s)) return 'Bahut zyada koshish ho gayi. Thodi der baad dobara try karein.';
-  if (/Network request failed|Failed to fetch|NetworkError/i.test(s)) return 'Internet check karein aur dobara try karein.';
+  if (/Invalid login credentials/i.test(s)) return 'Incorrect email or password.';
+  if (/User already registered/i.test(s)) return 'This email is already registered. Please log in.';
+  if (/Database error saving new user/i.test(s)) return 'This phone number or email is already registered.';
+  if (/Email not confirmed/i.test(s)) return 'Email not confirmed. Open the link we emailed you.';
+  if (/Password should be at least/i.test(s)) return 'Password must be at least 8 characters.';
+  if (/rate limit/i.test(s)) return 'Too many attempts. Please try again in a while.';
+  if (/Network request failed|Failed to fetch|NetworkError/i.test(s)) return 'Check your internet connection and try again.';
   return s;
 };
 
@@ -66,10 +67,10 @@ const authCall = async (path, body) => {
   return j;
 };
 
-export const signUp = async ({ email, password, name, phone }) => {
-  const j = await authCall('signup', { email, password, data: { name, phone, terms: 'true' } });
+export const signUp = async ({ email, password, name, phone, referral }) => {
+  const j = await authCall('signup', { email, password, data: { name, phone, terms: 'true', referral: referral || '' } });
   if (!j.access_token) {
-    throw new Error('Account ban gaya, par email confirm karna hoga. Mail me aaya link kholkar phir login karein.');
+    throw new Error('Account created. Please confirm your email using the link we sent, then log in.');
   }
   await saveSession(normalize(j));
 };
@@ -95,7 +96,7 @@ export const signOut = async () => {
 const refresh = async () => {
   if (!session || !session.refresh_token) {
     await saveSession(null);
-    throw new Error('Session khatam ho gaya. Dobara login karein.');
+    throw new Error('Your session has expired. Please log in again.');
   }
   if (!refreshing) {
     refreshing = (async () => {
@@ -104,7 +105,7 @@ const refresh = async () => {
         await saveSession(normalize(j));
       } catch (e) {
         await saveSession(null);
-        throw new Error('Session khatam ho gaya. Dobara login karein.');
+        throw new Error('Your session has expired. Please log in again.');
       } finally {
         refreshing = null;
       }
@@ -114,7 +115,7 @@ const refresh = async () => {
 };
 
 const token = async () => {
-  if (!hasSession()) throw new Error('Pehle login karein.');
+  if (!hasSession()) throw new Error('Please log in first.');
   if (session.expires_at - 60 < Math.floor(Date.now() / 1000)) await refresh();
   return session.access_token;
 };
@@ -156,7 +157,7 @@ export const uploadBanner = async (uri) => {
   if (!res.ok) {
     let m = '';
     try { const j = await res.json(); m = j.message || j.error || ''; } catch (e) {}
-    throw new Error('Banner upload nahi hua. ' + friendly(m));
+    throw new Error('Image upload failed. ' + friendly(m));
   }
   return SUPABASE_URL + '/storage/v1/object/public/banners/' + name;
 };

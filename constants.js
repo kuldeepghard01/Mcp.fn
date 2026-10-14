@@ -1,50 +1,88 @@
+// MCP v3 FINAL (APK build)
 // ---------- MCP Fantasy: settings ----------
 export const SUPABASE_URL = "https://zlgwkwdpwswdnuuetzhe.supabase.co";
 export const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpsZ3drd2Rwd3N3ZG51dWV0emhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MTI2NjIsImV4cCI6MjEwMzQ4ODY2Mn0.cOtOhQUvBiW4PwqthRCP3Q_5pZUTq1mUEakWZWVWIMM";
 export const TMDB_KEY = "15d2ea6d0dc1d476efbca3eba219bbf0";
 
-// Coins kharidne ke liye UPI (QR is ID se banta hai)
-export const UPI_ID = "9001641023@ibl";
-export const UPI_NAME = "MCP Fantasy";
-export const MIN_REDEEM_RS = 100;
-export const APP_VERSION = "2.0.0";
+export const APP_VERSION = "3.0.0";
 
-export const CURRENCIES = [
-  { cur: "coin", label: "Coin", icon: "🪙", rupees: 9, color: "#FFC107" },
-  { cur: "diamond", label: "Diamond", icon: "💎", rupees: 49, color: "#4FC3F7" },
-  { cur: "red", label: "Red Diamond", icon: "♦️", rupees: 99, color: "#FF5252" },
-];
-
-export const curInfo = (c) => CURRENCIES.find((x) => x.cur === c) || CURRENCIES[0];
-
-export const fmt = (n) => {
-  const v = Number(n);
-  if (isNaN(v)) return "0";
-  return v.toFixed(2).replace(/\.?0+$/, "");
+// AdMob settings.
+// testMode = true shows Google TEST ads (safe). Keep it true while testing, because
+// clicking or over-viewing your own real ads can get your AdMob account banned.
+// Set testMode to false only in the final release build.
+export const ADMOB = {
+  testMode: true,
+  rewarded: "ca-app-pub-3558136570580125/4253439264",
+  banner: "",
 };
 
-// Sirf dikhane ke liye. Asli lock server (database) ki ghadi se hota hai.
+export const CATEGORIES = ["Bollywood", "Hollywood", "Tollywood", "Other"];
+export const DEFAULT_QUESTIONS = ["Hero death", "Heroine death", "Love story", "Action", "Love story + Action"];
+export const MAX_COLLECTION_CR = 5000;
+
+const trim = (x) => Number(x.toFixed(2)).toString();
+
+export const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
+
+// Collection is stored in Crore. Show small values in Lakh.
+export const fmtCr = (cr) => {
+  const v = Number(cr);
+  if (isNaN(v)) return "-";
+  if (v > 0 && v < 1) return trim(v * 100) + " Lakh";
+  return trim(v) + " Cr";
+};
+
+export const toCr = (value, unit) => {
+  const v = parseFloat(value);
+  if (isNaN(v)) return NaN;
+  return unit === "lakh" ? v / 100 : v;
+};
+
 export const isLocked = (movie) => {
   if (!movie || !movie.lock_at) return false;
   return Date.now() >= new Date(movie.lock_at).getTime();
 };
 
-export const CATEGORIES = ["Bollywood", "Hollywood", "Tollywood", "Other"];
+export const timeLeft = (movie) => {
+  if (!movie || !movie.lock_at) return "";
+  const ms = new Date(movie.lock_at).getTime() - Date.now();
+  if (ms <= 0) return "Closed";
+  const m = Math.floor(ms / 60000);
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  if (d > 0) return d + "d " + h + "h left";
+  if (h > 0) return h + "h " + (m % 60) + "m left";
+  return (m % 60) + "m left";
+};
+
+export const lockText = (movie) => {
+  try {
+    return new Date(movie.lock_at).toLocaleString();
+  } catch (e) {
+    return "";
+  }
+};
+
+export const youtubeId = (url) => {
+  const s = String(url || "").trim();
+  if (!s) return "";
+  const m = s.match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  return "";
+};
 
 export const TERMS = [
-  { h: "1. Eligibility (18+)", t: "Ye app sirf 18 saal ya usse zyada umar ke users ke liye hai. Is app ko use karne se pehle aapko dekhna hoga ki aapke state/desh mein aisi activity kanooni roop se allowed hai. Agar allowed nahi hai to app use na karein." },
-  { h: "2. Kaise khelna hai", t: "Kisi movie ke contest mein join karke us movie ke Day 1 box-office collection (Crore mein) ka andaza lagayein. Actual collection ke sabse nazdeek andaza lagane wale jeetenge. Har user ek contest mein ek hi prediction laga sakta hai, jo contest lock hone se pehle badli ja sakti hai." },
-  { h: "3. Coins, Diamonds, Red Diamonds", t: "App ke andar sirf Coin, Diamond aur Red Diamond chalte hain. Rate: 1 Coin = Rs 9, 1 Diamond = Rs 49, 1 Red Diamond = Rs 99. Kharidne aur redeem karne dono par yahi rate lagu hota hai. Coin ke contest mein sirf Coin, Diamond ke contest mein sirf Diamond aur Red Diamond ke contest mein sirf Red Diamond lagta hai." },
-  { h: "4. Entry aur Prize Pool", t: "Har public contest mein entry 1 unit hoti hai. Jitne zyada log join karte hain, prize pool utna badhta hai. Kul entries ka 80 percent prize pool banta hai aur 20 percent platform fee hoti hai." },
-  { h: "5. Winners aur Inaam", t: "Rank 1 ko prize pool ka 50 percent, Rank 2 se 8 ko 30 percent (barabar bant kar), Rank 9 se 25 ko 20 percent (barabar bant kar). Agar players kam hon to sirf bhare hue tiers ke beech pool bant jata hai. Barabar diff hone par pehle prediction lagane wala upar rahega." },
-  { h: "6. Lock aur Result", t: "Movie ki release date shuru hote hi (raat 12:00 AM, India time) us movie ke saare contest aur private rooms lock ho jate hain. Actual Day 1 collection admin official source se dekh kar declare karta hai. Admin ka faisla final hoga." },
-  { h: "7. Refund", t: "Agar kisi contest ya room mein 2 se kam players hon to sabki entry wapas kar di jati hai. Movie hata di jaye to bhi entry wapas hoti hai." },
-  { h: "8. Private Rooms", t: "Aap apne doston ke liye private room bana sakte hain (apna entry aur spots chun kar). Room ka code share karke dost join kar sakte hain. Room ka result bhi alag declare hota hai." },
-  { h: "9. Coins kharidna", t: "UPI se payment karke 12 digit UTR number app mein daalein. Admin payment verify karne ke baad hi Coins add karta hai. Galat ya nakli UTR dene par account block ho sakta hai." },
-  { h: "10. Redeem (rupaye nikalna)", t: "Pehle apna payout account (UPI ya Bank) save karein. Redeem karne par aapke Coins/Diamonds kat kar rupaye (upar wale rate se) aapke account mein bheje jate hain. Minimum redeem value Rs 100 hai. Processing admin verification par nirbhar hai. Sirf aapke apne naam ka account use karein." },
-  { h: "11. Tax", t: "Jeet par lagu kanoon ke hisaab se TDS/tax kata ja sakta hai ya aapko dena pad sakta hai. Iski zimmedari user ki hai." },
-  { h: "12. Fair Play", t: "Ek insaan ka ek hi account. Multiple accounts, fraud, bug ka galat fayda uthana ya system ke saath chhed-chhad karne par account block ho sakta hai aur balance roka ja sakta hai." },
-  { h: "13. Responsible Gaming", t: "Sirf utna khelein jitna aap aaram se afford kar sakein. Ye game aadat ban sakta hai. Agar aapko lage ki control nahi ho raha to khelna band kar dein." },
-  { h: "14. Privacy", t: "Aapka naam, email, phone number aur payout details sirf service dene aur fraud rokne ke liye use hote hain. Ye kisi ko becha nahi jata." },
-  { h: "15. Badlav", t: "Ye terms samay samay par badal sakte hain. App use karte rehne ka matlab hai ki aap naye terms maante hain." },
+  { h: "1. About MCP Fantasy", t: "MCP Fantasy is a free movie prediction game. You predict a movie's Day 1 box-office collection and answer a few questions about the movie. There is no entry fee, no deposit and no cash withdrawal anywhere in the app." },
+  { h: "2. Eligibility", t: "You must be at least 18 years old. You are responsible for making sure that joining prediction games with prizes is allowed where you live. If it is not allowed, please do not use the app." },
+  { h: "3. How to play", t: "Open a movie, enter your Day 1 collection prediction and answer the movie questions. You join by watching a short ad. You can change your prediction until entries close. Entries close at 12:00 AM (India time) on the movie release date. You can join each movie up to 4 times (each entry needs a short ad). The limit may change." },
+  { h: "4. Scoring and winners", t: "Collection score: up to 100 points, based on how close your prediction is to the official Day 1 collection. Movie score: 10 points for each movie question you answer correctly. Your total score decides your rank. If scores are equal, the better collection score wins, then the earlier entry. The official collection and answers are set by the MCP team using public sources. Our decision is final." },
+  { h: "5. Coins", t: "Winners receive coins by rank: Rank 1 gets 25,000, ranks 2 to 10 get 10,000 each, ranks 11 to 100 get 6,500 each, ranks 101 to 1,000 get 2,000 each and ranks 1,001 to 50,000 get 1,000 each. New users get welcome coins (the amount may change). You can also earn coins by watching ads in the Coins tab, up to the daily limit. Coins expire if they are not used within the expiry period shown in the Coins tab (90 days by default). Coins have no cash value. They cannot be bought, sold, transferred or exchanged for money." },
+  { h: "6. Rewards", t: "You can use coins to request movie tickets from the Coins tab. Rewards depend on availability and are fulfilled manually by the MCP team. To request a reward, your account must meet the age and activity rules shown in the Coins tab, and monthly limits apply. We may ask for extra details, refuse suspicious requests or change the reward list, rules and coin prices at any time. If a request is refused, your coins are returned." },
+  { h: "7. Fair play", t: "One person, one account. Using multiple accounts, bots, scripts, or exploiting bugs is not allowed and may lead to account removal and loss of coins." },
+  { h: "8. Ads and partners", t: "The app shows ads and sponsored content from Google AdMob and partner brands. Ads may use your device advertising ID as allowed by your consent choices and local law. Sponsored links open third-party sites that we do not control." },
+  { h: "9. Your data", t: "We store your name, email, phone number, game activity and coin balance to run the service, prevent abuse and measure app usage. We do not sell your personal data. You can delete your account and data anytime from Profile." },
+  { h: "10. Referrals", t: "You can invite friends with your referral code. When a friend signs up with your code and joins their first contest, you receive bonus coins, up to a daily and a total limit. Fake or repeated accounts are not allowed and may lead to account removal and loss of coins." },
+  { h: "11. Responsible play", t: "This is a game for entertainment. Please play in moderation." },
+  { h: "12. Changes", t: "We may update these terms and the app from time to time. Continuing to use the app means you accept the updated terms." },
 ];

@@ -1,3 +1,4 @@
+// MCP v3 FINAL (APK build)
 import React from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Alert } from 'react-native';
 
