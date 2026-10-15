@@ -15,12 +15,21 @@ export default function ProfileTab({ profile, settings, onTerms, onLogout, onDel
   const bonus = Number(st.referral_bonus || 5000);
   const cap = Number(st.referral_daily_cap || 7);
   const life = Number(st.referral_lifetime_cap || 20);
+  const link = String(st.app_link || '').trim();
 
   const share = async () => {
     if (!ref || !ref.code) return;
     try {
       await Share.share({
-        message: "Join me on MCP Fantasy, the free movie prediction game! Use my referral code " + ref.code + " when you sign up. Predict a movie's Day 1 collection and win coins.",
+        message: "Join me on MCP Fantasy, the free movie prediction game! Use my referral code " + ref.code + " when you sign up. Predict a movie's Day 1 collection and win coins." + (link ? " Download the app: " + link : ''),
+      });
+    } catch (e) {}
+  };
+
+  const shareApp = async () => {
+    try {
+      await Share.share({
+        message: "Try MCP Fantasy, the free movie prediction game! Predict a movie's Day 1 collection and win coins." + (link ? " Download the app: " + link : ''),
       });
     } catch (e) {}
   };
@@ -45,7 +54,10 @@ export default function ProfileTab({ profile, settings, onTerms, onLogout, onDel
           <Text style={{ color: C.sub, fontSize: 11, marginVertical: 4 }}>
             {ref ? 'Friends joined: ' + ref.friends_total + '   |   Rewarded: ' + ref.friends_paid + '   |   Today: ' + ref.today_paid + '/' + cap : ''}
           </Text>
-          <Btn title="📤 Share my code" onPress={share} disabled={!ref} small />
+          <View style={{ flexDirection: 'row' }}>
+            <Btn title="📤 Share my code" onPress={share} disabled={!ref} small style={{ marginRight: 8 }} />
+            <Btn title="📲 Share app" onPress={shareApp} color="#333" small />
+          </View>
         </View>
 
         <Btn title="📜 Terms & Privacy" color="#333" onPress={onTerms} style={{ marginTop: 12 }} />

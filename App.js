@@ -18,7 +18,7 @@ import { NotificationsModal, TermsModal } from './Modals';
 import { C, notify, confirmBox, Btn } from './ui';
 import { loadSession, hasSession, getUserId, signOut, select, rpc } from './api';
 import { initAds } from './ads';
-import { fmtNum, isLocked } from './constants';
+import { fmtNum, isLocked, ADMOB } from './constants';
 
 const SEEN_KEY = '@mcp_seen_notif_v3';
 
@@ -74,6 +74,7 @@ export default function App() {
       const sm = {};
       (r[8] || []).forEach((x) => { sm[x.key] = x.value; });
       setSettings(sm);
+      if (r[8]) ADMOB.testMode = sm.ads_test_mode !== '0';
     } catch (e) {
       if (!hasSession()) {
         setLoggedIn(false);

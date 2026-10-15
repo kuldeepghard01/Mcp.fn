@@ -15,7 +15,7 @@
     },
     "android": {
       "package": "com.kuldeep.mcp",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -37,6 +37,12 @@
       "eas": {
         "projectId": "16b35a4d-b6a6-4f6e-9460-e7b453e736ab"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/16b35a4d-b6a6-4f6e-9460-e7b453e736ab"
     }
   }
 }
