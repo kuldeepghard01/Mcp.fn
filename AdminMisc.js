@@ -39,7 +39,7 @@ export function AdminOverview() {
           <Stat label="Entries today" value={n('entries_today')} />
           <Stat label="Entries total" value={n('entries_total')} />
           <Stat label="Ads watched today" value={n('ads_today')} />
-          <Stat label="Ads watched total" value={n('ads_total')} />
+          <Stat label="Ads watched (90 days)" value={n('ads_total')} />
           <Stat label="Sponsor views" value={n('sponsor_views')} />
           <Stat label="Sponsor clicks" value={n('sponsor_clicks')} />
         </View>

@@ -70,6 +70,17 @@ export default function AdminSettings() {
     }
   };
 
+  const cleanup = async () => {
+    const ok = await confirmBox('Remove old activity data now? This only removes old statistics rows. Coins, entries and results are not touched.');
+    if (!ok) return;
+    try {
+      const r = await rpc('mcp_admin_cleanup', {});
+      notify('Done. Removed ' + fmtNum(r.activity_rows) + ' activity rows, ' + fmtNum(r.ad_rows) + ' ad rows and ' + fmtNum(r.old_bonus_rows) + ' old bonus rows.');
+    } catch (e) {
+      notify(e.message);
+    }
+  };
+
   return (
     <View>
       <Text style={head}>⚙️ App settings</Text>
@@ -86,6 +97,13 @@ export default function AdminSettings() {
           Expiry runs by itself every night once you turn on the schedule (see the setup step). You can also run it by hand here.
         </Text>
         <Btn title="Expire old coins now" color="#b71c1c" onPress={expire} />
+      </View>
+      <View style={box}>
+        <Text style={head}>🧹 Old data cleanup</Text>
+        <Text style={{ color: C.sub, fontSize: 11, marginBottom: 8 }}>
+          Keeps the free database small. Removes activity rows older than 45 days and ad rows older than 90 days. Runs by itself every night once scheduled.
+        </Text>
+        <Btn title="Clean old data now" color="#333" onPress={cleanup} />
       </View>
     </View>
   );

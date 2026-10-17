@@ -25,10 +25,13 @@ const friendly = (m) => {
   return s;
 };
 
+const SESSION_EXPIRED = 'Your session has expired. Please log in again.';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const normalize = (j) => ({
   access_token: j.access_token,
   refresh_token: j.refresh_token,
-  expires_at: Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600),
+  expires_at: Number(j.expires_at) || (Math.floor(Date.now() / 1000) + (Number(j.expires_in) || 3600)),
   user: j.user ? { id: j.user.id, email: j.user.email } : null,
 });
 
@@ -93,29 +96,71 @@ export const signOut = async () => {
   await saveSession(null);
 };
 
-const refresh = async () => {
-  if (!session || !session.refresh_token) {
-    await saveSession(null);
-    throw new Error('Your session has expired. Please log in again.');
+const readStored = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
   }
+};
+
+const rawRefresh = async (rt) => {
+  let res;
+  try {
+    res = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ refresh_token: rt }),
+    });
+  } catch (e) {
+    return { net: true };
+  }
+  let j = {};
+  try { j = await res.json(); } catch (e) {}
+  return { ok: res.ok, status: res.status, j: j };
+};
+
+// The user is logged out ONLY when the server clearly rejects the refresh token.
+// Network problems, server errors and rate limits never log the user out.
+const refresh = async () => {
   if (!refreshing) {
     refreshing = (async () => {
       try {
-        const j = await authCall('token?grant_type=refresh_token', { refresh_token: session.refresh_token });
-        await saveSession(normalize(j));
-      } catch (e) {
-        await saveSession(null);
-        throw new Error('Your session has expired. Please log in again.');
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          if (!session || !session.refresh_token) break;
+          const used = session.refresh_token;
+          const r = await rawRefresh(used);
+          if (r.ok && r.j && r.j.access_token) {
+            await saveSession(normalize(r.j));
+            return;
+          }
+          const transient = r.net || r.status >= 500 || r.status === 429 || r.status === 408;
+          if (transient) {
+            await sleep(700 * (attempt + 1));
+            continue;
+          }
+          // Rejected. Maybe a newer copy of the session was already saved: use it once.
+          const stored = await readStored();
+          if (stored && stored.refresh_token && stored.refresh_token !== used) {
+            session = stored;
+            continue;
+          }
+          await saveSession(null);
+          throw new Error(SESSION_EXPIRED);
+        }
       } finally {
         refreshing = null;
       }
+      if (session) throw new Error('Cannot reach the server right now. Please try again in a moment.');
+      throw new Error(SESSION_EXPIRED);
     })();
   }
   return refreshing;
 };
 
 const token = async () => {
-  if (!hasSession()) throw new Error('Please log in first.');
+  if (!hasSession()) throw new Error(SESSION_EXPIRED);
   if (session.expires_at - 60 < Math.floor(Date.now() / 1000)) await refresh();
   return session.access_token;
 };

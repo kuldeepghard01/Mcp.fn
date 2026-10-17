@@ -1,6 +1,6 @@
 // MCP v3 FINAL (APK build)
 import React, { useState, useEffect, useCallback } from 'react';
-import { Text, View, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
+import { Text, View, TouchableOpacity, SafeAreaView, ScrollView, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { styles } from './styles';
 import Splash from './Splash';
@@ -46,35 +46,42 @@ export default function App() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
 
-  const loadAll = useCallback(async (silent) => {
+  const loadAll = useCallback(async (silent, light) => {
     const id = getUserId();
     if (!id) return;
     try {
-      const r = await Promise.all([
+      const jobs = [
         select('mcp_profiles', 'id=eq.' + id + '&select=name,phone,coins,is_admin,terms_accepted_at'),
         select('mcp_movies', 'select=*&order=release_date.desc'),
         rpc('mcp_entry_counts', {}),
         select('mcp_entries', 'user_id=eq.' + id + '&select=*&order=created_at.desc'),
-        select('mcp_notifications', 'select=*&order=created_at.desc&limit=30'),
-        select('mcp_prize_tiers', 'select=*&order=from_rank.asc'),
-        select('mcp_rewards', 'active=eq.true&select=*&order=sort.asc'),
-        select('mcp_sponsors', 'active=eq.true&select=*&order=created_at.desc'),
-        select('mcp_settings', 'select=*'),
-      ]);
+      ];
+      if (!light) {
+        jobs.push(select('mcp_notifications', 'select=*&order=created_at.desc&limit=30'));
+        jobs.push(select('mcp_prize_tiers', 'select=*&order=from_rank.asc'));
+        jobs.push(select('mcp_rewards', 'active=eq.true&select=*&order=sort.asc'));
+        jobs.push(select('mcp_sponsors', 'active=eq.true&select=*&order=created_at.desc'));
+        jobs.push(select('mcp_settings', 'select=*'));
+      }
+      const r = await Promise.all(jobs);
       if (r[0] && r[0][0]) setProfile(r[0][0]);
       setMovies(r[1] || []);
       const c = {};
       (r[2] || []).forEach((x) => { c[x.movie_id] = Number(x.entries); });
       setCounts(c);
       setEntries(r[3] || []);
-      setNotifs(r[4] || []);
-      setTiers(r[5] || []);
-      setRewards(r[6] || []);
-      setSponsors(r[7] || []);
-      const sm = {};
-      (r[8] || []).forEach((x) => { sm[x.key] = x.value; });
-      setSettings(sm);
-      if (r[8]) ADMOB.testMode = sm.ads_test_mode !== '0';
+      if (!light) {
+        setNotifs(r[4] || []);
+        setTiers(r[5] || []);
+        setRewards(r[6] || []);
+        setSponsors(r[7] || []);
+        const sm = {};
+        (r[8] || []).forEach((x) => { sm[x.key] = x.value; });
+        setSettings(sm);
+        // Real ads only when the admin switches them on. The admin account always sees test ads.
+        const isAdm = !!(r[0] && r[0][0] && r[0][0].is_admin);
+        ADMOB.testMode = sm.ads_test_mode !== '0' || isAdm;
+      }
     } catch (e) {
       if (!hasSession()) {
         setLoggedIn(false);
@@ -103,11 +110,21 @@ export default function App() {
     rpc('mcp_touch', {}).catch(() => {});
     let tick = 0;
     const t = setInterval(() => {
+      if (AppState.currentState !== 'active') return;
       tick += 1;
-      loadAll(true);
-      if (tick % 4 === 0) rpc('mcp_touch', {}).catch(() => {});
-    }, 30000);
-    return () => clearInterval(t);
+      loadAll(true, tick % 5 !== 0);
+      if (tick % 2 === 0) rpc('mcp_touch', {}).catch(() => {});
+    }, 120000);
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') {
+        loadAll(true, true);
+        rpc('mcp_touch', {}).catch(() => {});
+      }
+    });
+    return () => {
+      clearInterval(t);
+      if (sub && sub.remove) sub.remove();
+    };
   }, [loggedIn]);
 
   const onRefresh = async () => {

@@ -96,7 +96,9 @@ export default function AdminMovies({ movies, onChanged }) {
   };
 
   const del = async (m) => {
-    const ok = await confirmBox('Delete "' + m.title + '"? All entries for it will be removed.');
+    const ok = await confirmBox(m.settled_at
+      ? 'Delete "' + m.title + '" for good? Players keep the coins they already won, but all entries and the leaderboard for this movie will be removed. This cannot be undone.'
+      : 'Delete "' + m.title + '"? All entries for it will be removed.');
     if (!ok) return;
     try {
       await rpc('mcp_admin_delete_movie', { p_id: m.id });
@@ -143,7 +145,7 @@ export default function AdminMovies({ movies, onChanged }) {
           <Text style={{ color: C.sub, fontSize: 11 }}>{m.category + ' | ' + m.release_date + (m.settled_at ? ' | Results out' : (isLocked(m) ? ' | Closed' : ' | Open'))}</Text>
           <View style={{ flexDirection: 'row', marginTop: 8 }}>
             {!m.settled_at ? <Btn title="✏️ Edit" small color={C.blue} onPress={() => edit(m)} style={{ marginRight: 8 }} /> : null}
-            {!m.settled_at ? <Btn title="🗑 Delete" small color="#b71c1c" onPress={() => del(m)} /> : null}
+            <Btn title="🗑 Delete" small color="#b71c1c" onPress={() => del(m)} />
           </View>
         </View>
       ))}
