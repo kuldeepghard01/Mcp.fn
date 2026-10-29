@@ -1,10 +1,10 @@
 // MCP v3 FINAL (APK build)
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Text, View, TouchableOpacity, SafeAreaView, ScrollView } from 'react-native';
 import { styles } from './styles';
 import { TermsModal } from './Modals';
 import { C, notify, Btn, Field } from './ui';
-import { signIn, signUp, recover } from './api';
+import { signIn, signUp, recover, getLogoutReason } from './api';
 
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(s || '').trim());
 
@@ -18,6 +18,11 @@ export default function AuthScreen({ onLoggedIn }) {
   const [fRef, setFRef] = useState('');
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [why, setWhy] = useState(null);
+
+  useEffect(() => {
+    getLogoutReason().then(setWhy).catch(() => {});
+  }, []);
 
   const doLogin = async () => {
     if (!isEmail(fEmail) || !fPass) { notify('Enter your email and password.'); return; }
@@ -34,7 +39,7 @@ export default function AuthScreen({ onLoggedIn }) {
   const doRegister = async () => {
     if (fName.trim().length < 2) { notify('Enter your name.'); return; }
     if (!isEmail(fEmail)) { notify('Enter a valid email address.'); return; }
-    if (!/^[0-9]{7,15}$/.test(fPhone.trim())) { notify('Enter your phone number with country code, digits only (7 to 15 digits).'); return; }
+    if (fPhone.trim() && !/^[0-9]{7,15}$/.test(fPhone.trim())) { notify('Enter your phone number with country code, digits only (7 to 15 digits), or leave it empty.'); return; }
     if (fPass.length < 8) { notify('Password must be at least 8 characters.'); return; }
     if (!agree) { notify('Please confirm you are 18+ and accept the Terms.'); return; }
     setBusy(true);
@@ -64,6 +69,7 @@ export default function AuthScreen({ onLoggedIn }) {
         <View style={styles.authCard}>
           <Text style={styles.authLogo}>🎬 MCP Fantasy</Text>
           <Text style={styles.authSub}>Movie Collection Prediction</Text>
+          {why ? <Text style={{ color: '#ff9800', fontSize: 11, textAlign: 'center', marginBottom: 10 }}>{'You were logged out: ' + why.reason}</Text> : null}
           <View style={{ flexDirection: 'row', marginBottom: 14 }}>
             <TouchableOpacity style={[styles.tabItem, mode === 'login' && styles.activeTab]} onPress={() => setMode('login')}>
               <Text style={styles.tabText}>Log in</Text>
@@ -74,8 +80,17 @@ export default function AuthScreen({ onLoggedIn }) {
           </View>
           {mode === 'register' ? <Field label="Name" value={fName} onChangeText={setFName} autoCapitalize="words" maxLength={30} /> : null}
           <Field label="Email" value={fEmail} onChangeText={setFEmail} keyboardType="email-address" />
-          {mode === 'register' ? <Field label="Phone (with country code, digits only)" value={fPhone} onChangeText={setFPhone} keyboardType="phone-pad" maxLength={15} /> : null}
-          {mode === 'register' ? <Field label="Referral code (optional)" value={fRef} onChangeText={(v) => setFRef(v.toUpperCase())} autoCapitalize="characters" maxLength={12} /> : null}
+          {fEmail.trim().length > 0 && fEmail.indexOf('@') < 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
+              {['@gmail.com', '@yahoo.com', '@outlook.com', '@hotmail.com'].map((d) => (
+                <TouchableOpacity key={d} onPress={() => setFEmail(fEmail.trim() + d)} style={{ backgroundColor: '#2a2a2a', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, marginRight: 6, marginBottom: 6 }}>
+                  <Text style={{ color: '#ddd', fontSize: 12 }}>{d}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
+          {mode === 'register' ? <Field label="Phone (optional, with country code, digits only)" value={fPhone} onChangeText={setFPhone} keyboardType="phone-pad" maxLength={15} /> : null}
+          {mode === 'register' ? <Field label="Referral code (optional - you and your friend both get bonus coins)" value={fRef} onChangeText={(v) => setFRef(v.toUpperCase())} autoCapitalize="characters" maxLength={12} /> : null}
           <Field label="Password (at least 8 characters)" value={fPass} onChangeText={setFPass} secure />
           {mode === 'register' ? (
             <View style={{ marginBottom: 12 }}>

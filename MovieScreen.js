@@ -1,6 +1,6 @@
 // MCP v3 FINAL (APK build)
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, Image, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Modal, View, Text, Image, ScrollView, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
 import { C, Btn, notify } from './ui';
 import { rpc } from './api';
 import AdBanner from './AdBanner';
@@ -113,6 +113,11 @@ export default function MovieScreen({ visible, movie, entries, maxEntries, tiers
               {settled && movie.about_answers ? (
                 <View style={{ backgroundColor: '#122e1e', padding: 12, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: C.green }}>
                   <Text style={{ color: C.green, fontWeight: 'bold', fontSize: 13 }}>{'Official Day 1: ' + fmtCr(movie.actual_collection)}</Text>
+                  {movie.result_source_name ? (
+                    <TouchableOpacity disabled={!movie.result_source_url} onPress={() => Linking.openURL(movie.result_source_url).catch(() => notify('Could not open the link.'))}>
+                      <Text style={{ color: '#8ab4f8', fontSize: 11, marginTop: 3 }}>{'Source: ' + movie.result_source_name + (movie.result_source_url ? '  (tap to open)' : '')}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                   {qs.map((q, i) => (
                     <Text key={i} style={{ color: '#ddd', fontSize: 11, marginTop: 2 }}>{q + ': ' + (movie.about_answers[i] ? 'Yes' : 'No')}</Text>
                   ))}

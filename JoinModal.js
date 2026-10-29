@@ -9,7 +9,7 @@ import { fmtCr, fmtNum, toCr, timeLeft, lockText, MAX_COLLECTION_CR } from './co
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500';
 
 // Full screen "predict" page: collection prediction + movie Yes/No questions + Join with Ad.
-export default function JoinModal({ visible, movie, entry, topPrize, used = 0, max = 4, onClose, onDone, onTrailer }) {
+export default function JoinModal({ visible, movie, entry, topPrize, used = 0, max = 4, requireAd = false, onClose, onDone, onTrailer }) {
   const [val, setVal] = useState('');
   const [unit, setUnit] = useState('cr');
   const [ans, setAns] = useState([]);
@@ -53,6 +53,11 @@ export default function JoinModal({ visible, movie, entry, topPrize, used = 0, m
         const res = await showRewardedAd('Join ' + movie.title);
         if (res === 'dismissed') {
           notify('Please watch the full ad to join.');
+          setBusy(false);
+          return;
+        }
+        if (res === 'unavailable' && requireAd) {
+          notify('No ad is available right now. Please try again in a moment.');
           setBusy(false);
           return;
         }

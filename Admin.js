@@ -10,8 +10,8 @@ import AdminEarnings from './AdminEarnings';
 import AdminSettings from './AdminSettings';
 import { AdminOverview, AdminUsers, AdminNotify } from './AdminMisc';
 
-export default function Admin({ movies, onChanged }) {
-  const [sec, setSec] = useState('overview');
+export default function Admin({ movies, onChanged, start }) {
+  const [sec, setSec] = useState(start || 'overview');
   return (
     <ScrollView style={{ flex: 1, padding: 10 }} keyboardShouldPersistTaps="handled">
       <Chips

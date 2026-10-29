@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SUPABASE_URL, SUPABASE_KEY } from './constants';
 
 const SESSION_KEY = '@mcp_session_v2';
+const LOGOUT_KEY = '@mcp_last_logout';
 let session = null;
 let refreshing = null;
 
@@ -81,6 +82,7 @@ export const signUp = async ({ email, password, name, phone, referral }) => {
 export const signIn = async (email, password) => {
   const j = await authCall('token?grant_type=password', { email, password });
   await saveSession(normalize(j));
+  try { await AsyncStorage.removeItem(LOGOUT_KEY); } catch (e) {}
 };
 
 export const recover = async (email) => {
@@ -94,6 +96,7 @@ export const signOut = async () => {
     }
   } catch (e) {}
   await saveSession(null);
+  try { await AsyncStorage.removeItem(LOGOUT_KEY); } catch (e) {}
 };
 
 const readStored = async () => {
@@ -121,42 +124,66 @@ const rawRefresh = async (rt) => {
   return { ok: res.ok, status: res.status, j: j };
 };
 
-// The user is logged out ONLY when the server clearly rejects the refresh token.
-// Network problems, server errors and rate limits never log the user out.
+const logoutWith = async (reason) => {
+  try {
+    await AsyncStorage.setItem(LOGOUT_KEY, JSON.stringify({ at: new Date().toISOString(), reason: String(reason).slice(0, 160) }));
+  } catch (e) {}
+  await saveSession(null);
+};
+
+// Only a clear "this login is no longer valid" answer from Supabase counts as a rejection.
+// Odd replies (network block pages, captive portals, server errors) never log the user out.
+const isRejection = (r) => {
+  if (!r || r.net) return false;
+  if (r.status !== 400 && r.status !== 401 && r.status !== 403) return false;
+  let t = '';
+  try { t = JSON.stringify(r.j || {}); } catch (e) { t = ''; }
+  return /refresh_token|invalid_grant|session_not_found|session_expired|refresh token/i.test(t);
+};
+
 const refresh = async () => {
   if (!refreshing) {
     refreshing = (async () => {
       try {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          if (!session || !session.refresh_token) break;
+        if (!session || !session.refresh_token) {
+          await logoutWith('no saved login found');
+          throw new Error(SESSION_EXPIRED);
+        }
+        for (let attempt = 0; attempt < 4; attempt += 1) {
           const used = session.refresh_token;
           const r = await rawRefresh(used);
           if (r.ok && r.j && r.j.access_token) {
             await saveSession(normalize(r.j));
             return;
           }
-          const transient = r.net || r.status >= 500 || r.status === 429 || r.status === 408;
-          if (transient) {
-            await sleep(700 * (attempt + 1));
-            continue;
+          if (isRejection(r)) {
+            // Maybe a newer copy of the login was already saved: use it once.
+            const stored = await readStored();
+            if (stored && stored.refresh_token && stored.refresh_token !== used) {
+              session = stored;
+              continue;
+            }
+            await logoutWith('server said the saved login is no longer valid (' + r.status + ' ' + String((r.j && (r.j.error_code || r.j.error || r.j.msg)) || '') + ')');
+            throw new Error(SESSION_EXPIRED);
           }
-          // Rejected. Maybe a newer copy of the session was already saved: use it once.
-          const stored = await readStored();
-          if (stored && stored.refresh_token && stored.refresh_token !== used) {
-            session = stored;
-            continue;
-          }
-          await saveSession(null);
-          throw new Error(SESSION_EXPIRED);
+          await sleep(800 * (attempt + 1));
         }
       } finally {
         refreshing = null;
       }
-      if (session) throw new Error('Cannot reach the server right now. Please try again in a moment.');
-      throw new Error(SESSION_EXPIRED);
+      throw new Error('Cannot reach the server right now. Please try again in a moment.');
     })();
   }
   return refreshing;
+};
+
+export const getLogoutReason = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(LOGOUT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
 };
 
 const token = async () => {

@@ -1,11 +1,47 @@
 // MCP v3 FINAL (APK build)
 import React, { useState } from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Text, Image, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { C, notify, confirmBox, Btn, Field, Chips } from './ui';
 import { rpc, uploadBanner } from './api';
 import { box, head } from './adminCommon';
 import { CATEGORIES, DEFAULT_QUESTIONS, TMDB_KEY, isLocked } from './constants';
+
+const TMDB_HOSTS = ['api.themoviedb.org', 'api.tmdb.org'];
+
+// Backup way: ask TMDB directly from the phone (tries two addresses).
+const tmdbGet = async (path) => {
+  let lastErr = null;
+  for (const h of TMDB_HOSTS) {
+    try {
+      const res = await fetch('https://' + h + '/3' + path + (path.indexOf('?') >= 0 ? '&' : '?') + 'api_key=' + TMDB_KEY);
+      const d = await res.json();
+      if (res.ok) return d;
+      lastErr = new Error(d && d.status_message ? d.status_message : 'TMDB error ' + res.status);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('Cannot reach TMDB');
+};
+
+const directSearch = async (q) => {
+  const d = await tmdbGet('/search/movie?include_adult=false&query=' + encodeURIComponent(q));
+  return (d.results || []).slice(0, 6).map((x) => ({
+    id: x.id, title: x.title, release_date: x.release_date, poster: x.poster_path,
+    backdrop: x.backdrop_path, overview: String(x.overview || '').slice(0, 160),
+  }));
+};
+
+const directDetails = async (id) => {
+  const d = await tmdbGet('/movie/' + id + '?append_to_response=videos');
+  const vids = (d.videos && d.videos.results) || [];
+  const t = vids.find((v) => v.site === 'YouTube' && v.type === 'Trailer');
+  return {
+    title: d.title, release_date: d.release_date, poster: d.poster_path, backdrop: d.backdrop_path,
+    genres: (d.genres || []).map((g) => g.name).join(', '), trailer: t ? t.key : null,
+  };
+};
 
 export default function AdminMovies({ movies, onChanged }) {
   const [editId, setEditId] = useState(null);
@@ -16,6 +52,7 @@ export default function AdminMovies({ movies, onChanged }) {
   const [banner, setBanner] = useState('');
   const [questions, setQuestions] = useState(DEFAULT_QUESTIONS.slice());
   const [busy, setBusy] = useState(false);
+  const [cands, setCands] = useState([]);
 
   const reset = () => {
     setEditId(null); setTitle(''); setCategory('Bollywood'); setRelease(''); setTrailer(''); setBanner('');
@@ -25,26 +62,34 @@ export default function AdminMovies({ movies, onChanged }) {
   const autoFill = async () => {
     if (!title.trim()) { notify('Type the movie name first.'); return; }
     setBusy(true);
+    setCands([]);
     try {
-      const res = await fetch('https://api.themoviedb.org/3/search/movie?api_key=' + TMDB_KEY + '&query=' + encodeURIComponent(title.trim()));
-      const d = await res.json();
-      if (d && d.results && d.results.length > 0) {
-        const m = d.results[0];
-        if (m.title) setTitle(m.title);
-        if (m.release_date) setRelease(m.release_date);
-        if (m.poster_path) setBanner('https://image.tmdb.org/t/p/w780' + (m.backdrop_path || m.poster_path));
-        try {
-          const vr = await fetch('https://api.themoviedb.org/3/movie/' + m.id + '/videos?api_key=' + TMDB_KEY);
-          const vd = await vr.json();
-          const t = ((vd && vd.results) || []).find((v) => v.site === 'YouTube' && v.type === 'Trailer');
-          if (t) setTrailer('https://www.youtube.com/watch?v=' + t.key);
-        } catch (e) {}
-        notify('Details found. Please check them, then save.');
-      } else {
-        notify('Movie not found. Please fill the details yourself.');
-      }
+      let list = null;
+      try { list = await rpc('mcp_admin_tmdb_search', { p_query: title.trim() }); } catch (e) { list = null; }
+      if (!list) list = await directSearch(title.trim());
+      if (!list || list.length === 0) notify('No movie found with this name. Try the English name, or fill the details yourself.');
+      else setCands(list);
     } catch (e) {
-      notify('Auto-fill failed. Check your internet connection.');
+      notify('Auto-fill failed: ' + e.message + ' You can fill the details yourself.');
+    }
+    setBusy(false);
+  };
+
+  const pickCand = async (c) => {
+    setBusy(true);
+    try {
+      let d = null;
+      try { d = await rpc('mcp_admin_tmdb_details', { p_id: c.id }); } catch (e) { d = null; }
+      if (!d) d = await directDetails(c.id);
+      setTitle(d.title || c.title);
+      if (d.release_date) setRelease(d.release_date);
+      const img = d.backdrop || d.poster;
+      if (img) setBanner('https://image.tmdb.org/t/p/w780' + img);
+      setTrailer(d.trailer ? 'https://www.youtube.com/watch?v=' + d.trailer : '');
+      setCands([]);
+      notify('Details added.' + (d.genres ? ' Genres: ' + d.genres + '.' : '') + ' Please check the release date for your country, then save.');
+    } catch (e) {
+      notify('Could not load the details: ' + e.message);
     }
     setBusy(false);
   };
@@ -115,6 +160,17 @@ export default function AdminMovies({ movies, onChanged }) {
         <Text style={head}>{editId ? '✏️ Edit movie' : '➕ New movie'}</Text>
         <Field label="Movie name" value={title} onChangeText={setTitle} autoCapitalize="words" />
         <Btn title="🔍 Auto-fill (name, date, poster, trailer)" small color={C.blue} onPress={autoFill} disabled={busy} style={{ marginBottom: 10 }} />
+        {cands.length > 0 ? (
+          <View style={{ marginBottom: 10 }}>
+            <Text style={{ color: C.sub, fontSize: 11, marginBottom: 4 }}>Tap the right movie:</Text>
+            {cands.map((c) => (
+              <TouchableOpacity key={String(c.id)} onPress={() => pickCand(c)} style={{ backgroundColor: C.card2, padding: 10, borderRadius: 8, marginBottom: 6 }}>
+                <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{c.title + (c.release_date ? ' (' + String(c.release_date).slice(0, 4) + ')' : '')}</Text>
+                <Text numberOfLines={2} style={{ color: C.sub, fontSize: 11 }}>{c.overview || ''}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
         <Chips options={CATEGORIES.map((c) => ({ key: c, label: c }))} value={category} onChange={setCategory} />
         <Field label="Release date (YYYY-MM-DD)" value={release} onChangeText={setRelease} placeholder="2026-10-10" maxLength={10} />
         <Field label="Trailer link (YouTube)" value={trailer} onChangeText={setTrailer} />

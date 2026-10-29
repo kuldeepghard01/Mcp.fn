@@ -1,6 +1,6 @@
 // MCP v3 FINAL (APK build)
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Linking } from 'react-native';
 import { C, notify, confirmBox, Btn, Field, Chips } from './ui';
 import { rpc } from './api';
 import { box, head } from './adminCommon';
@@ -14,6 +14,8 @@ export default function AdminResults({ movies, onChanged }) {
   const [unit, setUnit] = useState('cr');
   const [answers, setAnswers] = useState([]);
   const [winners, setWinners] = useState([]);
+  const [srcName, setSrcName] = useState('');
+  const [srcUrl, setSrcUrl] = useState('');
   const [busy, setBusy] = useState(false);
 
   const movie = movies.find((m) => m.id === movieId) || null;
@@ -24,6 +26,8 @@ export default function AdminResults({ movies, onChanged }) {
     setUnit('cr');
     setAnswers((m.about_questions || []).map(() => null));
     setWinners([]);
+    setSrcName(m.result_source_name || '');
+    setSrcUrl(m.result_source_url || '');
     if (m.settled_at) {
       try { setWinners((await rpc('mcp_admin_winners', { p_movie: m.id, p_limit: 30 })) || []); } catch (e) { notify(e.message); }
     }
@@ -39,18 +43,29 @@ export default function AdminResults({ movies, onChanged }) {
     const cr = toCr(val, unit);
     if (isNaN(cr) || cr <= 0) { notify('Enter the official Day 1 collection.'); return; }
     if (answers.some((a) => a !== true && a !== false)) { notify('Set the correct answer (Yes or No) for every question.'); return; }
+    if (srcName.trim().length < 2) { notify('Enter where the result comes from (for example Sacnilk).'); return; }
     const ok = await confirmBox('Declare results for ' + movie.title + ' with Day 1 = ' + fmtCr(cr) + '? Coins will be paid to winners now. This cannot be undone.');
     if (!ok) return;
     setBusy(true);
     try {
-      const r = await rpc('mcp_admin_settle', { p_movie: movie.id, p_actual: cr, p_answers: answers });
+      const r = await rpc('mcp_admin_settle', { p_movie: movie.id, p_actual: cr, p_answers: answers, p_source_name: srcName, p_source_url: srcUrl });
       notify('Results declared. ' + r.entries + ' entries, ' + fmtNum(r.coins_paid) + ' coins paid.');
       onChanged();
-      await choose({ ...movie, settled_at: 'now' });
+      await choose({ ...movie, settled_at: 'now', result_source_name: srcName, result_source_url: srcUrl });
     } catch (e) {
       notify(e.message);
     }
     setBusy(false);
+  };
+
+  const saveSource = async () => {
+    try {
+      await rpc('mcp_admin_set_result_source', { p_movie: movie.id, p_name: srcName, p_url: srcUrl });
+      notify('Source saved.');
+      onChanged();
+    } catch (e) {
+      notify(e.message);
+    }
   };
 
   const yn = (label, active, color, onPress) => (
@@ -70,6 +85,7 @@ export default function AdminResults({ movies, onChanged }) {
       {movie && !movie.settled_at ? (
         <View style={box}>
           <Text style={head}>{'Declare results: ' + movie.title}</Text>
+          <Btn title="🔎 Look up Day 1 collection online" small color="#333" onPress={() => Linking.openURL('https://www.google.com/search?q=' + encodeURIComponent(movie.title + ' day 1 box office collection')).catch(() => notify('Could not open the browser.'))} style={{ alignSelf: 'flex-start', marginBottom: 10 }} />
           <Text style={{ color: C.sub, fontSize: 11, marginBottom: 4 }}>Official Day 1 collection</Text>
           <Chips options={[{ key: 'cr', label: 'Crore' }, { key: 'lakh', label: 'Lakh' }]} value={unit} onChange={setUnit} />
           <Field value={val} onChangeText={setVal} keyboardType="decimal-pad" maxLength={10} placeholder="e.g. 85.68" />
@@ -84,6 +100,8 @@ export default function AdminResults({ movies, onChanged }) {
           <Text style={{ color: '#777', fontSize: 10, marginVertical: 8 }}>
             Score = collection accuracy (0 to 100) + 10 points per correct answer. Prizes follow the prize table.
           </Text>
+          <Field label="Result source (shown to players)" value={srcName} onChangeText={setSrcName} autoCapitalize="words" maxLength={80} placeholder="e.g. Sacnilk" />
+          <Field label="Source link (optional, https://...)" value={srcUrl} onChangeText={setSrcUrl} maxLength={250} />
           <Btn title={busy ? 'Please wait...' : '🏆 Declare results'} onPress={declare} disabled={busy} />
         </View>
       ) : null}
@@ -92,6 +110,10 @@ export default function AdminResults({ movies, onChanged }) {
         <View style={box}>
           <Text style={head}>{movie.title}</Text>
           <Text style={{ color: C.green, fontSize: 13, fontWeight: 'bold' }}>{'Official Day 1: ' + fmtCr(movie.actual_collection)}</Text>
+          <Text style={{ color: C.sub, fontSize: 11, marginTop: 4 }}>{movie.result_source_name ? 'Source: ' + movie.result_source_name : 'No source recorded yet. Add one below.'}</Text>
+          <Field label="Result source" value={srcName} onChangeText={setSrcName} autoCapitalize="words" maxLength={80} />
+          <Field label="Source link (optional)" value={srcUrl} onChangeText={setSrcUrl} maxLength={250} />
+          <Btn title="Save source" small color={C.blue} onPress={saveSource} style={{ alignSelf: 'flex-start', marginBottom: 8 }} />
           <Text style={{ color: C.sub, fontSize: 11, marginBottom: 8 }}>Top 30 players</Text>
           {winners.map((w, i) => (
             <Text key={i} style={{ color: '#ddd', fontSize: 11, marginBottom: 3 }}>

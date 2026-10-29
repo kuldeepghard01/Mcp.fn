@@ -2,7 +2,7 @@
 // ---------- MCP Fantasy: settings ----------
 export const SUPABASE_URL = "https://zlgwkwdpwswdnuuetzhe.supabase.co";
 export const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpsZ3drd2Rwd3N3ZG51dWV0emhlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MTI2NjIsImV4cCI6MjEwMzQ4ODY2Mn0.cOtOhQUvBiW4PwqthRCP3Q_5pZUTq1mUEakWZWVWIMM";
-export const TMDB_KEY = "15d2ea6d0dc1d476efbca3eba219bbf0";
+export const TMDB_KEY = "d1a0f63e70022050ff2eaf191611a489";
 
 export const APP_VERSION = "3.0.0";
 
@@ -41,6 +41,21 @@ export const toCr = (value, unit) => {
 export const isLocked = (movie) => {
   if (!movie || !movie.lock_at) return false;
   return Date.now() >= new Date(movie.lock_at).getTime();
+};
+
+// Order: open movies (soonest release first), then closed movies waiting for results,
+// then movies whose results are out (newest first).
+export const sortMovies = (list) => {
+  const rank = (m) => (m.settled_at ? 2 : (isLocked(m) ? 1 : 0));
+  return (list || []).slice().sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    const da = String(a.release_date);
+    const db = String(b.release_date);
+    if (ra === 0) return da < db ? -1 : (da > db ? 1 : 0);
+    return da < db ? 1 : (da > db ? -1 : 0);
+  });
 };
 
 export const timeLeft = (movie) => {

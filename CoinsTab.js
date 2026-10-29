@@ -10,7 +10,7 @@ import RedeemModal from './RedeemModal';
 import { fmtNum } from './constants';
 
 const statusColor = (s) => (s === 'fulfilled' ? '#1b5e20' : s === 'rejected' ? '#b71c1c' : '#8d6e00');
-const kindText = { prize: 'Contest prize', ad_bonus: 'Ad bonus', welcome: 'Welcome bonus', expire: 'Expired', redeem: 'Reward request', redeem_refund: 'Refund', admin_adjust: 'Adjustment' };
+const kindText = { prize: 'Contest prize', ad_bonus: 'Ad bonus', welcome: 'Welcome bonus', referral: 'Referral bonus', referral_gift: 'Friend code gift', expire: 'Expired', redeem: 'Reward request', redeem_refund: 'Refund', admin_adjust: 'Adjustment' };
 
 export default function CoinsTab({ coins, rewards, settings, onChanged }) {
   const [bonus, setBonus] = useState(null);

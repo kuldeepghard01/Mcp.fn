@@ -11,6 +11,10 @@ const LABELS = {
   ad_bonus_daily_cap: 'Bonus ads allowed per user per day',
   ad_bonus_gap_seconds: 'Seconds to wait between bonus ads',
   app_link: 'App download link (shared with friends)',
+  privacy_url: 'Privacy policy link (https://...)',
+  referral_friend_bonus: 'Gift coins for the invited friend',
+  join_requires_ad: 'Must watch an ad to join (1 = yes, 0 = join even if no ad is available)',
+  support_email: 'Support email (shown to users)',
   ads_test_mode: 'Ads mode (1 = test ads, 0 = real ads)',
   referral_lifetime_cap: 'Referral bonuses per user in total (lifetime)',
   max_entries_per_movie: 'Entries allowed per user per movie',
@@ -87,7 +91,7 @@ export default function AdminSettings() {
       <Text style={{ color: C.sub, fontSize: 11, marginBottom: 10 }}>Change these any time. No app update is needed.</Text>
       {rows.map((r) => (
         <View key={r.key} style={box}>
-          <Field label={LABELS[r.key] || r.key} value={vals[r.key] || ''} onChangeText={(v) => setVals({ ...vals, [r.key]: v })} maxLength={r.key === 'app_link' ? 250 : 12} />
+          <Field label={LABELS[r.key] || r.key} value={vals[r.key] || ''} onChangeText={(v) => setVals({ ...vals, [r.key]: v })} maxLength={r.key === 'app_link' || r.key === 'privacy_url' ? 250 : (r.key === 'support_email' ? 100 : 12)} />
           <Btn title={busy === r.key ? 'Saving...' : 'Save'} small onPress={() => save(r.key)} disabled={busy === r.key || vals[r.key] === r.value} style={{ alignSelf: 'flex-start' }} />
         </View>
       ))}

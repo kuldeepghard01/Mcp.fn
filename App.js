@@ -18,7 +18,7 @@ import { NotificationsModal, TermsModal } from './Modals';
 import { C, notify, confirmBox, Btn } from './ui';
 import { loadSession, hasSession, getUserId, signOut, select, rpc } from './api';
 import { initAds } from './ads';
-import { fmtNum, isLocked, ADMOB } from './constants';
+import { fmtNum, isLocked, ADMOB, sortMovies } from './constants';
 
 const SEEN_KEY = '@mcp_seen_notif_v3';
 
@@ -39,6 +39,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [tab, setTab] = useState('contests');
   const [category, setCategory] = useState('ALL');
+  const [adminStart, setAdminStart] = useState('overview');
 
   const [screen, setScreen] = useState(null);
   const [join, setJoin] = useState(null);
@@ -65,7 +66,7 @@ export default function App() {
       }
       const r = await Promise.all(jobs);
       if (r[0] && r[0][0]) setProfile(r[0][0]);
-      setMovies(r[1] || []);
+      setMovies(sortMovies(r[1] || []));
       const c = {};
       (r[2] || []).forEach((x) => { c[x.movie_id] = Number(x.entries); });
       setCounts(c);
@@ -187,6 +188,8 @@ export default function App() {
   const joinedMap = {};
   entries.forEach((e) => { joinedMap[e.movie_id] = (joinedMap[e.movie_id] || 0) + 1; });
   const maxEntries = Number(settings.max_entries_per_movie || 4);
+  // Movies whose release day is over but results are not declared yet (admin reminder)
+  const pendingResults = isAdmin ? movies.filter((m) => !m.settled_at && Date.now() >= new Date(m.lock_at).getTime() + 86400000) : [];
 
   if (!splashDone) return <Splash onFinish={() => setSplashDone(true)} />;
   if (booting) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
@@ -237,11 +240,17 @@ export default function App() {
         {tabItem('coins', '🪙 Coins')}
         {tabItem('profile', '👤 Profile')}
         {isAdmin ? (
-          <TouchableOpacity style={[styles.tabItem, tab === 'admin' && styles.activeTab]} onPress={() => setTab('admin')}>
-            <Text style={{ color: C.red, fontWeight: 'bold', fontSize: 11 }}>⚡ Admin</Text>
+          <TouchableOpacity style={[styles.tabItem, tab === 'admin' && styles.activeTab]} onPress={() => { setAdminStart('overview'); setTab('admin'); }}>
+            <Text style={{ color: C.red, fontWeight: 'bold', fontSize: 11 }}>{'⚡ Admin' + (pendingResults.length > 0 ? ' (' + pendingResults.length + ')' : '')}</Text>
           </TouchableOpacity>
         ) : null}
       </View>
+
+      {pendingResults.length > 0 && tab !== 'admin' ? (
+        <TouchableOpacity onPress={() => { setAdminStart('results'); setTab('admin'); }} style={{ backgroundColor: '#5a1010', padding: 10, borderBottomWidth: 1, borderBottomColor: '#7a1a1a' }}>
+          <Text style={{ color: '#ffb4b4', fontSize: 12, fontWeight: 'bold' }}>{'⏰ Declare results: ' + pendingResults.map((m) => m.title).join(', ') + '  (tap here)'}</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {tab === 'contests' ? (
         <MoviesTab
@@ -278,7 +287,7 @@ export default function App() {
       ) : null}
       {tab === 'coins' ? <CoinsTab coins={profile ? Number(profile.coins) : 0} rewards={rewards} settings={settings} onChanged={() => loadAll(true)} /> : null}
       {tab === 'profile' ? <ProfileTab profile={profile} settings={settings} onTerms={() => setTermsOpen(true)} onLogout={doLogout} onDelete={doDelete} /> : null}
-      {tab === 'admin' && isAdmin ? <Admin movies={movies} onChanged={() => loadAll(true)} /> : null}
+      {tab === 'admin' && isAdmin ? <Admin movies={movies} start={adminStart} onChanged={() => loadAll(true)} /> : null}
 
       <MovieScreen
         visible={!!screenMovie}
@@ -298,6 +307,7 @@ export default function App() {
         entry={joinEntry}
         used={joinMovie ? joinedMap[joinMovie.id] || 0 : 0}
         max={maxEntries}
+        requireAd={settings.join_requires_ad === '1'}
         topPrize={tiers.length > 0 ? tiers[0].coins : 0}
         onTrailer={(m) => setTrailerId(m.id)}
         onClose={() => setJoin(null)}
