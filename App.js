@@ -16,7 +16,7 @@ import JoinModal from './JoinModal';
 import TrailerPlayer from './TrailerPlayer';
 import { NotificationsModal, TermsModal } from './Modals';
 import { C, notify, confirmBox, Btn } from './ui';
-import { loadSession, hasSession, getUserId, signOut, select, rpc } from './api';
+import { loadSession, hasSession, getUserId, signOut, select, rpc, loadCache, saveCache } from './api';
 import { initAds } from './ads';
 import { fmtNum, isLocked, ADMOB, sortMovies } from './constants';
 
@@ -40,6 +40,7 @@ export default function App() {
   const [tab, setTab] = useState('contests');
   const [category, setCategory] = useState('ALL');
   const [adminStart, setAdminStart] = useState('overview');
+  const [loadingFirst, setLoadingFirst] = useState(true);
 
   const [screen, setScreen] = useState(null);
   const [join, setJoin] = useState(null);
@@ -47,42 +48,69 @@ export default function App() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
 
+  const applyData = useCallback((d, light) => {
+    if (d.profile) setProfile(d.profile);
+    if (d.movies) setMovies(sortMovies(d.movies));
+    if (d.counts) {
+      const c = {};
+      d.counts.forEach((x) => { c[x.movie_id] = Number(x.entries); });
+      setCounts(c);
+    }
+    if (d.entries) setEntries(d.entries);
+    if (!light) {
+      if (d.notifs) setNotifs(d.notifs);
+      if (d.tiers) setTiers(d.tiers);
+      if (d.rewards) setRewards(d.rewards);
+      if (d.sponsors) setSponsors(d.sponsors);
+      if (d.settings) {
+        const sm = {};
+        d.settings.forEach((x) => { sm[x.key] = x.value; });
+        setSettings(sm);
+        // Real ads only when the admin switches them on. The admin account always sees test ads.
+        const isAdm = !!(d.profile && d.profile.is_admin);
+        ADMOB.testMode = sm.ads_test_mode !== '0' || isAdm;
+      }
+    }
+  }, []);
+
+  // Backup way (used only if the one-request loader is not installed on the server yet)
+  const legacyLoad = async (id, light) => {
+    const ok = (p) => p.catch(() => undefined);
+    const jobs = [
+      ok(select('mcp_profiles', 'id=eq.' + id + '&select=name,phone,coins,is_admin,terms_accepted_at')),
+      ok(select('mcp_movies', 'select=*&order=release_date.desc')),
+      ok(rpc('mcp_entry_counts', {})),
+      ok(select('mcp_entries', 'user_id=eq.' + id + '&select=*&order=created_at.desc')),
+    ];
+    if (!light) {
+      jobs.push(ok(select('mcp_notifications', 'select=*&order=created_at.desc&limit=30')));
+      jobs.push(ok(select('mcp_prize_tiers', 'select=*&order=from_rank.asc')));
+      jobs.push(ok(select('mcp_rewards', 'active=eq.true&select=*&order=sort.asc')));
+      jobs.push(ok(select('mcp_sponsors', 'active=eq.true&select=*&order=created_at.desc')));
+      jobs.push(ok(select('mcp_settings', 'select=*')));
+    }
+    const r = await Promise.all(jobs);
+    if (r.every((x) => x === undefined)) throw new Error('Cannot reach the server. Check your internet and pull down to refresh.');
+    return {
+      profile: r[0] && r[0][0], movies: r[1], counts: r[2], entries: r[3],
+      notifs: r[4], tiers: r[5], rewards: r[6], sponsors: r[7], settings: r[8],
+    };
+  };
+
   const loadAll = useCallback(async (silent, light) => {
     const id = getUserId();
     if (!id) return;
     try {
-      const jobs = [
-        select('mcp_profiles', 'id=eq.' + id + '&select=name,phone,coins,is_admin,terms_accepted_at'),
-        select('mcp_movies', 'select=*&order=release_date.desc'),
-        rpc('mcp_entry_counts', {}),
-        select('mcp_entries', 'user_id=eq.' + id + '&select=*&order=created_at.desc'),
-      ];
-      if (!light) {
-        jobs.push(select('mcp_notifications', 'select=*&order=created_at.desc&limit=30'));
-        jobs.push(select('mcp_prize_tiers', 'select=*&order=from_rank.asc'));
-        jobs.push(select('mcp_rewards', 'active=eq.true&select=*&order=sort.asc'));
-        jobs.push(select('mcp_sponsors', 'active=eq.true&select=*&order=created_at.desc'));
-        jobs.push(select('mcp_settings', 'select=*'));
+      let d = null;
+      try {
+        d = await rpc('mcp_bootstrap', { p_light: !!light });
+      } catch (e) {
+        if (!hasSession()) throw e;
+        d = null;
       }
-      const r = await Promise.all(jobs);
-      if (r[0] && r[0][0]) setProfile(r[0][0]);
-      setMovies(sortMovies(r[1] || []));
-      const c = {};
-      (r[2] || []).forEach((x) => { c[x.movie_id] = Number(x.entries); });
-      setCounts(c);
-      setEntries(r[3] || []);
-      if (!light) {
-        setNotifs(r[4] || []);
-        setTiers(r[5] || []);
-        setRewards(r[6] || []);
-        setSponsors(r[7] || []);
-        const sm = {};
-        (r[8] || []).forEach((x) => { sm[x.key] = x.value; });
-        setSettings(sm);
-        // Real ads only when the admin switches them on. The admin account always sees test ads.
-        const isAdm = !!(r[0] && r[0][0] && r[0][0].is_admin);
-        ADMOB.testMode = sm.ads_test_mode !== '0' || isAdm;
-      }
+      if (!d) d = await legacyLoad(id, light);
+      applyData(d, light);
+      if (!light) saveCache(id, d);
     } catch (e) {
       if (!hasSession()) {
         setLoggedIn(false);
@@ -90,13 +118,22 @@ export default function App() {
       }
       if (!silent) notify(e.message);
     }
-  }, []);
+    setLoadingFirst(false);
+  }, [applyData]);
 
   useEffect(() => {
     (async () => {
       try {
         await loadSession();
-        if (hasSession()) setLoggedIn(true);
+        if (hasSession()) {
+          // show the last saved data at once, fresh data follows a moment later
+          const cached = await loadCache(getUserId());
+          if (cached) {
+            applyData(cached, false);
+            setLoadingFirst(false);
+          }
+          setLoggedIn(true);
+        }
         const seen = await AsyncStorage.getItem(SEEN_KEY);
         if (seen) setSeenId(Number(seen) || 0);
       } catch (e) {}
@@ -259,6 +296,7 @@ export default function App() {
           joined={joinedMap}
           maxEntries={maxEntries}
           sponsors={sponsors}
+          loading={loadingFirst}
           category={category}
           onCategory={setCategory}
           refreshing={refreshing}

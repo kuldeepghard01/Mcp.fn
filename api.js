@@ -4,6 +4,7 @@ import { SUPABASE_URL, SUPABASE_KEY } from './constants';
 
 const SESSION_KEY = '@mcp_session_v2';
 const LOGOUT_KEY = '@mcp_last_logout';
+const CACHE_KEY = '@mcp_cache_v1';
 let session = null;
 let refreshing = null;
 
@@ -97,6 +98,7 @@ export const signOut = async () => {
   } catch (e) {}
   await saveSession(null);
   try { await AsyncStorage.removeItem(LOGOUT_KEY); } catch (e) {}
+  try { await AsyncStorage.removeItem(CACHE_KEY); } catch (e) {}
 };
 
 const readStored = async () => {
@@ -175,6 +177,24 @@ const refresh = async () => {
     })();
   }
   return refreshing;
+};
+
+// Last loaded data is saved on the phone so the app can show it instantly on the next start.
+export const loadCache = async (uid) => {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw);
+    return c && c.uid === uid ? c.data : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+export const saveCache = async (uid, data) => {
+  try {
+    await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ uid: uid, at: Date.now(), data: data }));
+  } catch (e) {}
 };
 
 export const getLogoutReason = async () => {

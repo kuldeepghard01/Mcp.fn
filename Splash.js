@@ -12,17 +12,17 @@ export default function SplashScreen({ onFinish }) {
   useEffect(() => {
     Animated.sequence([
       Animated.parallel([
-        Animated.timing(logoOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.timing(logoScale, { toValue: 1, duration: 1100, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(logoOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+        Animated.timing(logoScale, { toValue: 1, duration: 800, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         Animated.sequence([
-          Animated.delay(500),
+          Animated.delay(350),
           Animated.parallel([
-            Animated.timing(textOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-            Animated.timing(textScale, { toValue: 1, duration: 500, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            Animated.timing(textOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+            Animated.timing(textScale, { toValue: 1, duration: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           ]),
         ]),
       ]),
-      Animated.delay(400),
+      Animated.delay(150),
     ]).start(() => onFinish());
   }, []);
 
