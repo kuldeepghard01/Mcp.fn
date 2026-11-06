@@ -1,6 +1,6 @@
 // MCP v3 FINAL (APK build)
 import React, { useState, useEffect } from 'react';
-import { Modal, View, Text, Image, ScrollView, TouchableOpacity, ActivityIndicator, Linking } from 'react-native';
+import { Modal, View, Text, Image, ScrollView, TouchableOpacity, ActivityIndicator, Linking, Share } from 'react-native';
 import { C, Btn, notify } from './ui';
 import { rpc } from './api';
 import AdBanner from './AdBanner';
@@ -10,7 +10,7 @@ const PLACEHOLDER = 'https://images.unsplash.com/photo-1489599849927-2ee91cede3b
 
 const rankLabel = (t) => (t.from_rank === t.to_rank ? '#' + t.from_rank : '#' + t.from_rank + ' - #' + t.to_rank);
 
-export default function MovieScreen({ visible, movie, entries, maxEntries, tiers, count, initialTab, onClose, onJoin, onTrailer }) {
+export default function MovieScreen({ visible, movie, entries, maxEntries, appLink, tiers, count, initialTab, onClose, onJoin, onTrailer }) {
   const [tab, setTab] = useState('prizes');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -32,6 +32,14 @@ export default function MovieScreen({ visible, movie, entries, maxEntries, tiers
   }, [visible, movieId, tab]);
 
   if (!movie) return null;
+  const shareResult = async (en) => {
+    try {
+      await Share.share({
+        message: 'I ranked #' + en.final_rank + ' with a score of ' + en.score + ' in "' + movie.title + '" on MCP Fantasy! Predict movie collections for free and win coins.' + (appLink ? ' Download: ' + appLink : ''),
+      });
+    } catch (e) {}
+  };
+
   const locked = isLocked(movie);
   const settled = !!movie.settled_at;
   const qs = movie.about_questions || [];
@@ -134,6 +142,7 @@ export default function MovieScreen({ visible, movie, entries, maxEntries, tiers
                       {'Rank #' + en.final_rank + '  |  Score ' + en.score + '  |  Won 🪙 ' + fmtNum(en.prize)}
                     </Text>
                   ) : null}
+                  {en.final_rank ? <Btn title="📤 Share my result" small color="#333" onPress={() => shareResult(en)} style={{ marginTop: 8, alignSelf: 'flex-start' }} /> : null}
                   {!locked ? <Btn title="✏️ Edit" small color="#333" onPress={() => onJoin(movie, en)} style={{ marginTop: 8, alignSelf: 'flex-start' }} /> : null}
                 </View>
               ))}

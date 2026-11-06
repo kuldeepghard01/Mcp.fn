@@ -20,7 +20,8 @@
         "foregroundImage": "./adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "allowBackup": false
     },
     "plugins": [
       "expo-image-picker",

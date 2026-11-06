@@ -12,7 +12,7 @@ import { fmtNum } from './constants';
 const statusColor = (s) => (s === 'fulfilled' ? '#1b5e20' : s === 'rejected' ? '#b71c1c' : '#8d6e00');
 const kindText = { prize: 'Contest prize', ad_bonus: 'Ad bonus', welcome: 'Welcome bonus', referral: 'Referral bonus', referral_gift: 'Friend code gift', expire: 'Expired', redeem: 'Reward request', redeem_refund: 'Refund', admin_adjust: 'Adjustment' };
 
-export default function CoinsTab({ coins, rewards, settings, onChanged }) {
+export default function CoinsTab({ coins, rewards, settings, daily, refreshDaily, onChanged }) {
   const [bonus, setBonus] = useState(null);
   const [busy, setBusy] = useState(false);
   const [reds, setReds] = useState([]);
@@ -28,6 +28,19 @@ export default function CoinsTab({ coins, rewards, settings, onChanged }) {
   }, []);
 
   useEffect(() => { load(); }, [load, coins]);
+
+  const claimDaily = async () => {
+    setBusy(true);
+    try {
+      const r = await rpc('mcp_daily_checkin', {});
+      notify('Day ' + r.streak + ' reward: +' + fmtNum(r.earned) + ' coins!');
+      onChanged();
+      if (refreshDaily) refreshDaily();
+    } catch (e) {
+      notify(e.message);
+    }
+    setBusy(false);
+  };
 
   const watch = async () => {
     setBusy(true);
@@ -61,6 +74,24 @@ export default function CoinsTab({ coins, rewards, settings, onChanged }) {
         <Text style={{ color: C.gold, fontSize: 32, fontWeight: 'bold' }}>{'🪙 ' + fmtNum(coins)}</Text>
         <Text style={{ color: '#a89a5a', fontSize: 10, marginTop: 2 }}>Coins have no cash value and cannot be bought.</Text>
       </View>
+
+      {daily ? (
+        <View style={{ backgroundColor: '#14261a', borderRadius: 12, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#1b5e20' }}>
+          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>{'🎁 Daily reward   🔥 ' + daily.streak + ' day streak'}</Text>
+          <View style={{ flexDirection: 'row', marginVertical: 10 }}>
+            {Array.from({ length: Number(daily.max_streak) || 7 }).map((_, i) => (
+              <View key={i} style={{ flex: 1, height: 8, borderRadius: 4, marginRight: 3, backgroundColor: i < Math.min(daily.streak, Number(daily.max_streak) || 7) ? C.green : '#2d2d2d' }} />
+            ))}
+          </View>
+          <Btn
+            title={daily.claimed_today ? 'Claimed today. Tomorrow: +' + fmtNum(daily.reward) + ' coins' : 'Claim +' + fmtNum(daily.reward) + ' coins'}
+            onPress={claimDaily}
+            disabled={busy || daily.claimed_today}
+            color="#1b5e20"
+          />
+          <Text style={{ color: '#7a9a7a', fontSize: 10, marginTop: 6 }}>Come back every day. Your reward grows with your streak.</Text>
+        </View>
+      ) : null}
 
       <View style={{ backgroundColor: C.card, borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: '#282828' }}>
         <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>Earn coins</Text>

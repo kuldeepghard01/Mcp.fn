@@ -5,6 +5,7 @@ import { SUPABASE_URL, SUPABASE_KEY } from './constants';
 const SESSION_KEY = '@mcp_session_v2';
 const LOGOUT_KEY = '@mcp_last_logout';
 const CACHE_KEY = '@mcp_cache_v1';
+const LOCK_KEY = '@mcp_refresh_lock';
 let session = null;
 let refreshing = null;
 
@@ -93,7 +94,7 @@ export const recover = async (email) => {
 export const signOut = async () => {
   try {
     if (session && session.access_token) {
-      await fetch(SUPABASE_URL + '/auth/v1/logout', { method: 'POST', headers: headers(session.access_token) });
+      await fetch(SUPABASE_URL + '/auth/v1/logout?scope=local', { method: 'POST', headers: headers(session.access_token) });
     }
   } catch (e) {}
   await saveSession(null);
@@ -143,10 +144,43 @@ const isRejection = (r) => {
   return /refresh_token|invalid_grant|session_not_found|session_expired|refresh token/i.test(t);
 };
 
+let lockMine = false;
+
+// Two copies of the app (for example right after a live update restarts it) must not use the same
+// refresh token at the same time. A small lock in the phone storage keeps them in line.
+const acquireLock = async () => {
+  for (let i = 0; i < 12; i += 1) {
+    let t = 0;
+    try { t = Number(await AsyncStorage.getItem(LOCK_KEY)) || 0; } catch (e) { t = 0; }
+    if (!t || Date.now() - t > 15000) {
+      try { await AsyncStorage.setItem(LOCK_KEY, String(Date.now())); } catch (e) {}
+      lockMine = true;
+      return true;
+    }
+    await sleep(500);
+    const stored = await readStored();
+    if (stored && stored.access_token && stored.expires_at - 60 > Math.floor(Date.now() / 1000)) {
+      session = stored;
+      return false;
+    }
+  }
+  try { await AsyncStorage.setItem(LOCK_KEY, String(Date.now())); } catch (e) {}
+  lockMine = true;
+  return true;
+};
+
+const releaseLock = async () => {
+  if (!lockMine) return;
+  lockMine = false;
+  try { await AsyncStorage.removeItem(LOCK_KEY); } catch (e) {}
+};
+
 const refresh = async () => {
   if (!refreshing) {
     refreshing = (async () => {
       try {
+        const gotLock = await acquireLock();
+        if (!gotLock) return;
         if (!session || !session.refresh_token) {
           await logoutWith('no saved login found');
           throw new Error(SESSION_EXPIRED);
@@ -172,6 +206,7 @@ const refresh = async () => {
         }
       } finally {
         refreshing = null;
+        await releaseLock();
       }
       throw new Error('Cannot reach the server right now. Please try again in a moment.');
     })();

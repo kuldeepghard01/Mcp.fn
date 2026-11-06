@@ -30,6 +30,20 @@ function SponsorCard({ sponsor }) {
   );
 }
 
+// Grey placeholder cards shown while the first data is loading
+function SkeletonCard() {
+  return (
+    <View style={[styles.card, { opacity: 0.6 }]}>
+      <View style={{ height: 170, backgroundColor: '#1f1f1f' }} />
+      <View style={{ padding: 14 }}>
+        <View style={{ height: 16, width: '60%', backgroundColor: '#262626', borderRadius: 4 }} />
+        <View style={{ height: 11, width: '40%', backgroundColor: '#222', borderRadius: 4, marginTop: 10 }} />
+        <View style={{ height: 30, width: '35%', backgroundColor: '#262626', borderRadius: 8, marginTop: 14, alignSelf: 'flex-end' }} />
+      </View>
+    </View>
+  );
+}
+
 // One card in the swipe row of finished movies
 function ResultCard({ m, onOpen, onTrailer }) {
   return (
@@ -187,10 +201,13 @@ export default function MoviesTab({ movies, counts, joined, maxEntries, loading,
         onRefresh={onRefresh}
         ListHeaderComponent={header}
         ListFooterComponent={footer}
+        initialNumToRender={4}
+        windowSize={7}
+        maxToRenderPerBatch={4}
         ListEmptyComponent={loading && movies.length === 0 ? (
-          <View style={{ alignItems: 'center', marginVertical: 40 }}>
-            <ActivityIndicator color={C.red} size="large" />
-            <Text style={{ color: C.sub, fontSize: 12, marginTop: 10 }}>Loading contests...</Text>
+          <View>
+            <SkeletonCard />
+            <SkeletonCard />
           </View>
         ) : (
           <Text style={{ color: C.sub, textAlign: 'center', marginVertical: 24 }}>No upcoming contests right now. Check back soon.</Text>

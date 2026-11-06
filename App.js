@@ -14,13 +14,14 @@ import ProfileTab from './ProfileTab';
 import MovieScreen from './MovieScreen';
 import JoinModal from './JoinModal';
 import TrailerPlayer from './TrailerPlayer';
-import { NotificationsModal, TermsModal } from './Modals';
+import { NotificationsModal, TermsModal, HowToModal } from './Modals';
 import { C, notify, confirmBox, Btn } from './ui';
 import { loadSession, hasSession, getUserId, signOut, select, rpc, loadCache, saveCache } from './api';
 import { initAds } from './ads';
 import { fmtNum, isLocked, ADMOB, sortMovies } from './constants';
 
 const SEEN_KEY = '@mcp_seen_notif_v3';
+const TUTORIAL_KEY = '@mcp_tutorial_v1';
 
 export default function App() {
   const [splashDone, setSplashDone] = useState(false);
@@ -41,12 +42,15 @@ export default function App() {
   const [category, setCategory] = useState('ALL');
   const [adminStart, setAdminStart] = useState('overview');
   const [loadingFirst, setLoadingFirst] = useState(true);
+  const [offline, setOffline] = useState(false);
 
   const [screen, setScreen] = useState(null);
   const [join, setJoin] = useState(null);
   const [trailerId, setTrailerId] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
+  const [daily, setDaily] = useState(null);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   const applyData = useCallback((d, light) => {
     if (d.profile) setProfile(d.profile);
@@ -110,13 +114,19 @@ export default function App() {
       }
       if (!d) d = await legacyLoad(id, light);
       applyData(d, light);
-      if (!light) saveCache(id, d);
+      setOffline(false);
+      if (!light) {
+        saveCache(id, d);
+        rpc('mcp_checkin_status', {}).then(setDaily).catch(() => {});
+      }
     } catch (e) {
       if (!hasSession()) {
         setLoggedIn(false);
         setProfile(null);
+      } else if (/Cannot reach|internet/i.test(String(e.message))) {
+        setOffline(true);
       }
-      if (!silent) notify(e.message);
+      if (!silent && !/Cannot reach|internet/i.test(String(e.message))) notify(e.message);
     }
     setLoadingFirst(false);
   }, [applyData]);
@@ -164,6 +174,21 @@ export default function App() {
       if (sub && sub.remove) sub.remove();
     };
   }, [loggedIn]);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(TUTORIAL_KEY);
+        if (!seen) setTutorialOpen(true);
+      } catch (e) {}
+    })();
+  }, [loggedIn]);
+
+  const closeTutorial = async () => {
+    setTutorialOpen(false);
+    try { await AsyncStorage.setItem(TUTORIAL_KEY, '1'); } catch (e) {}
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -271,6 +296,12 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
+      {offline ? (
+        <View style={{ backgroundColor: '#3a2a00', paddingVertical: 5 }}>
+          <Text style={{ color: '#ffd27a', fontSize: 11, textAlign: 'center' }}>You are offline. Showing your saved data.</Text>
+        </View>
+      ) : null}
+
       <View style={styles.tabBar}>
         {tabItem('contests', '🔥 Contests')}
         {tabItem('my', '🎯 My Contests')}
@@ -286,6 +317,12 @@ export default function App() {
       {pendingResults.length > 0 && tab !== 'admin' ? (
         <TouchableOpacity onPress={() => { setAdminStart('results'); setTab('admin'); }} style={{ backgroundColor: '#5a1010', padding: 10, borderBottomWidth: 1, borderBottomColor: '#7a1a1a' }}>
           <Text style={{ color: '#ffb4b4', fontSize: 12, fontWeight: 'bold' }}>{'⏰ Declare results: ' + pendingResults.map((m) => m.title).join(', ') + '  (tap here)'}</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {daily && !daily.claimed_today && tab !== 'coins' ? (
+        <TouchableOpacity onPress={() => setTab('coins')} style={{ backgroundColor: '#1d3a1d', padding: 10, borderBottomWidth: 1, borderBottomColor: '#2a5a2a' }}>
+          <Text style={{ color: '#a5e6a5', fontSize: 12, fontWeight: 'bold' }}>{'🎁 Daily reward ready: +' + fmtNum(daily.reward) + ' coins (tap to claim)'}</Text>
         </TouchableOpacity>
       ) : null}
 
@@ -323,8 +360,8 @@ export default function App() {
           onEdit={(m, en) => setJoin({ id: m.id, entryId: en.id })}
         />
       ) : null}
-      {tab === 'coins' ? <CoinsTab coins={profile ? Number(profile.coins) : 0} rewards={rewards} settings={settings} onChanged={() => loadAll(true)} /> : null}
-      {tab === 'profile' ? <ProfileTab profile={profile} settings={settings} onTerms={() => setTermsOpen(true)} onLogout={doLogout} onDelete={doDelete} /> : null}
+      {tab === 'coins' ? <CoinsTab coins={profile ? Number(profile.coins) : 0} rewards={rewards} settings={settings} daily={daily} refreshDaily={() => rpc('mcp_checkin_status', {}).then(setDaily).catch(() => {})} onChanged={() => loadAll(true)} /> : null}
+      {tab === 'profile' ? <ProfileTab profile={profile} settings={settings} entries={entries} daily={daily} onHowTo={() => setTutorialOpen(true)} onTerms={() => setTermsOpen(true)} onLogout={doLogout} onDelete={doDelete} /> : null}
       {tab === 'admin' && isAdmin ? <Admin movies={movies} start={adminStart} onChanged={() => loadAll(true)} /> : null}
 
       <MovieScreen
@@ -332,6 +369,7 @@ export default function App() {
         movie={screenMovie}
         entries={screenEntries}
         maxEntries={maxEntries}
+        appLink={settings.app_link}
         tiers={tiers}
         count={screenMovie ? counts[screenMovie.id] || 0 : 0}
         initialTab={screen ? screen.tab : 'prizes'}
@@ -354,6 +392,7 @@ export default function App() {
       <TrailerPlayer visible={!!trailerMovie} url={trailerMovie ? trailerMovie.trailer_url : ''} title={trailerMovie ? trailerMovie.title : ''} onClose={() => setTrailerId(null)} />
       <NotificationsModal visible={notifOpen} notifs={notifs} onClose={() => { setNotifOpen(false); markSeen(); }} />
       <TermsModal visible={termsOpen} onClose={() => setTermsOpen(false)} />
+      <HowToModal visible={tutorialOpen} onClose={closeTutorial} />
       <AdHost />
     </SafeAreaView>
   );
