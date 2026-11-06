@@ -3,8 +3,14 @@ on:
   push:
     branches: ['main']
 jobs:
-  send_updates:
-    name: Send updates
+  update_preview:
+    name: Update preview channel
     type: update
     params:
       channel: preview
+  update_production:
+    name: Update production channel
+    type: update
+    params:
+      channel: production
+      
