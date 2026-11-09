@@ -13,4 +13,3 @@ jobs:
     type: update
     params:
       channel: production
-      
