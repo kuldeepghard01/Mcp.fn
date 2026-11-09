@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1009021387727",
+    "project_id": "mcp-fantasy",
+    "storage_bucket": "mcp-fantasy.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1009021387727:android:17a7bee694195602c548ba",
+        "android_client_info": {
+          "package_name": "Com.kuldeep.mcp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBX0CZvLAVbVjt9ygb-m_mESNSinRuJ9rA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
