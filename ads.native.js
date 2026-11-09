@@ -22,6 +22,51 @@ export const initAds = async () => {
   } catch (e) {}
 };
 
+// ---- Full-screen ad between screens (never at app start, capped by count and time) ----
+let inter = null;
+let interLoaded = false;
+let actionCount = 0;
+let lastShown = 0;
+
+const loadInterstitial = () => {
+  if (!lib || !lib.InterstitialAd) return;
+  if (!ADMOB.testMode && !ADMOB.interstitial) return;
+  try {
+    const unit = (ADMOB.testMode || !ADMOB.interstitial) ? lib.TestIds.INTERSTITIAL : ADMOB.interstitial;
+    interLoaded = false;
+    inter = lib.InterstitialAd.createForAdRequest(unit);
+    inter.addAdEventListener(lib.AdEventType.LOADED, () => { interLoaded = true; });
+    inter.addAdEventListener(lib.AdEventType.CLOSED, () => {
+      interLoaded = false;
+      setTimeout(loadInterstitial, 1500);
+    });
+    inter.addAdEventListener(lib.AdEventType.ERROR, () => { interLoaded = false; });
+    inter.load();
+  } catch (e) {}
+};
+
+export const preloadInterstitial = () => {
+  if (!inter) loadInterstitial();
+};
+
+// everyN = 0 means off. Shows at most once per gapMinutes.
+export const maybeShowInterstitial = (everyN, gapMinutes) => {
+  const n = Number(everyN) || 0;
+  if (n <= 0 || !lib) return;
+  actionCount += 1;
+  if (actionCount % n !== 0) return;
+  const gap = (Number(gapMinutes) || 3) * 60000;
+  if (Date.now() - lastShown < gap) return;
+  if (inter && interLoaded) {
+    try {
+      inter.show();
+      lastShown = Date.now();
+    } catch (e) {}
+  } else if (!inter) {
+    loadInterstitial();
+  }
+};
+
 // Returns 'earned' | 'dismissed' | 'unavailable'
 export const showRewardedAd = (label) =>
   new Promise((resolve) => {

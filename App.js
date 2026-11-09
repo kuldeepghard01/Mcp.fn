@@ -15,13 +15,15 @@ import MovieScreen from './MovieScreen';
 import JoinModal from './JoinModal';
 import TrailerPlayer from './TrailerPlayer';
 import { NotificationsModal, TermsModal, HowToModal } from './Modals';
+import { registerForPush, onNotificationTap } from './push';
 import { C, notify, confirmBox, Btn } from './ui';
 import { loadSession, hasSession, getUserId, signOut, select, rpc, loadCache, saveCache } from './api';
-import { initAds } from './ads';
+import { initAds, preloadInterstitial, maybeShowInterstitial } from './ads';
 import { fmtNum, isLocked, ADMOB, sortMovies } from './constants';
 
 const SEEN_KEY = '@mcp_seen_notif_v3';
 const TUTORIAL_KEY = '@mcp_tutorial_v1';
+const PUSH_ASKED_KEY = '@mcp_push_asked_v1';
 
 export default function App() {
   const [splashDone, setSplashDone] = useState(false);
@@ -51,6 +53,8 @@ export default function App() {
   const [termsOpen, setTermsOpen] = useState(false);
   const [daily, setDaily] = useState(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [tutorialChecked, setTutorialChecked] = useState(false);
+  const [pendingOpen, setPendingOpen] = useState(null);
 
   const applyData = useCallback((d, light) => {
     if (d.profile) setProfile(d.profile);
@@ -81,7 +85,7 @@ export default function App() {
   const legacyLoad = async (id, light) => {
     const ok = (p) => p.catch(() => undefined);
     const jobs = [
-      ok(select('mcp_profiles', 'id=eq.' + id + '&select=name,phone,coins,is_admin,terms_accepted_at')),
+      ok(select('mcp_profiles', 'id=eq.' + id + '&select=name,phone,coins,is_admin,terms_accepted_at,push_enabled')),
       ok(select('mcp_movies', 'select=*&order=release_date.desc')),
       ok(rpc('mcp_entry_counts', {})),
       ok(select('mcp_entries', 'user_id=eq.' + id + '&select=*&order=created_at.desc')),
@@ -153,7 +157,7 @@ export default function App() {
 
   useEffect(() => {
     if (!loggedIn) return;
-    initAds();
+    initAds().then(() => preloadInterstitial()).catch(() => {});
     loadAll(false);
     rpc('mcp_touch', {}).catch(() => {});
     let tick = 0;
@@ -182,6 +186,7 @@ export default function App() {
         const seen = await AsyncStorage.getItem(TUTORIAL_KEY);
         if (!seen) setTutorialOpen(true);
       } catch (e) {}
+      setTutorialChecked(true);
     })();
   }, [loggedIn]);
 
@@ -189,6 +194,31 @@ export default function App() {
     setTutorialOpen(false);
     try { await AsyncStorage.setItem(TUTORIAL_KEY, '1'); } catch (e) {}
   };
+
+  // Ask for notification permission once (after the tutorial) and save this phone's token
+  useEffect(() => {
+    if (!loggedIn || !tutorialChecked || tutorialOpen) return;
+    (async () => {
+      try {
+        const asked = await AsyncStorage.getItem(PUSH_ASKED_KEY);
+        await registerForPush(!asked);
+        await AsyncStorage.setItem(PUSH_ASKED_KEY, '1');
+      } catch (e) {}
+    })();
+  }, [loggedIn, tutorialChecked, tutorialOpen]);
+
+  // Tapping a notification opens that movie
+  useEffect(() => onNotificationTap((d) => {
+    if (d && d.movie_id) setPendingOpen(String(d.movie_id));
+  }), []);
+
+  useEffect(() => {
+    if (!pendingOpen || !loggedIn) return;
+    const m = movies.find((x) => String(x.id) === pendingOpen);
+    if (!m) return;
+    setPendingOpen(null);
+    setScreen({ id: m.id, tab: m.settled_at ? 'leaderboard' : 'prizes' });
+  }, [pendingOpen, movies, loggedIn]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -361,7 +391,7 @@ export default function App() {
         />
       ) : null}
       {tab === 'coins' ? <CoinsTab coins={profile ? Number(profile.coins) : 0} rewards={rewards} settings={settings} daily={daily} refreshDaily={() => rpc('mcp_checkin_status', {}).then(setDaily).catch(() => {})} onChanged={() => loadAll(true)} /> : null}
-      {tab === 'profile' ? <ProfileTab profile={profile} settings={settings} entries={entries} daily={daily} onHowTo={() => setTutorialOpen(true)} onTerms={() => setTermsOpen(true)} onLogout={doLogout} onDelete={doDelete} /> : null}
+      {tab === 'profile' ? <ProfileTab profile={profile} settings={settings} entries={entries} daily={daily} onRefresh={() => loadAll(true)} onHowTo={() => setTutorialOpen(true)} onTerms={() => setTermsOpen(true)} onLogout={doLogout} onDelete={doDelete} /> : null}
       {tab === 'admin' && isAdmin ? <Admin movies={movies} start={adminStart} onChanged={() => loadAll(true)} /> : null}
 
       <MovieScreen
@@ -373,7 +403,10 @@ export default function App() {
         tiers={tiers}
         count={screenMovie ? counts[screenMovie.id] || 0 : 0}
         initialTab={screen ? screen.tab : 'prizes'}
-        onClose={() => setScreen(null)}
+        onClose={() => {
+          setScreen(null);
+          maybeShowInterstitial(settings.interstitial_every, settings.interstitial_gap_minutes);
+        }}
         onJoin={(m, en) => setJoin({ id: m.id, entryId: en ? en.id : null })}
         onTrailer={(m) => setTrailerId(m.id)}
       />

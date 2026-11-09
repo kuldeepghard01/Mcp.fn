@@ -12,6 +12,11 @@ const LABELS = {
   ad_bonus_gap_seconds: 'Seconds to wait between bonus ads',
   app_link: 'App download link (shared with friends)',
   privacy_url: 'Privacy policy link (https://...)',
+  interstitial_every: 'Full-screen ad: show after every N movie screens closed (0 = off)',
+  interstitial_gap_minutes: 'Full-screen ad: minimum minutes between two ads',
+  push_new_movie: 'Push: tell players about new movies (1 = on, 0 = off)',
+  push_results: 'Push: tell players when results are out (1 = on, 0 = off)',
+  push_closing_soon: 'Push: remind players before entries close (1 = on, 0 = off)',
   checkin_base: 'Daily reward: coins on day 1',
   checkin_step: 'Daily reward: extra coins for each streak day',
   checkin_max_streak: 'Daily reward: streak length (days)',
@@ -88,6 +93,15 @@ export default function AdminSettings() {
     }
   };
 
+  const pushTest = async () => {
+    try {
+      const r = await rpc('mcp_admin_push_test', {});
+      notify(r.queued > 0 ? 'Test notification sent to ' + r.queued + ' of your phone(s). It should appear in a few seconds.' : 'No phone of yours is registered yet. Open the app, allow notifications, then try again.');
+    } catch (e) {
+      notify(e.message);
+    }
+  };
+
   return (
     <View>
       <Text style={head}>⚙️ App settings</Text>
@@ -111,6 +125,13 @@ export default function AdminSettings() {
           Keeps the free database small. Removes activity rows older than 45 days and ad rows older than 90 days. Runs by itself every night once scheduled.
         </Text>
         <Btn title="Clean old data now" color="#333" onPress={cleanup} />
+      </View>
+      <View style={box}>
+        <Text style={head}>🔔 Push notifications</Text>
+        <Text style={{ color: C.sub, fontSize: 11, marginBottom: 8 }}>
+          Players get a notification for new movies, results and entries closing soon. Use the switches below (1 = on, 0 = off).
+        </Text>
+        <Btn title="Send a test notification to me" color="#333" onPress={pushTest} />
       </View>
     </View>
   );

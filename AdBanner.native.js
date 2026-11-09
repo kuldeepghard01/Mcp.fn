@@ -12,10 +12,11 @@ try {
 
 export default function AdBanner() {
   if (!lib || !lib.BannerAd) return null;
+  if (!ADMOB.testMode && !ADMOB.banner) return null;
   const unit = (ADMOB.testMode || !ADMOB.banner) ? lib.TestIds.BANNER : ADMOB.banner;
   return (
     <View style={{ alignItems: 'center', marginVertical: 6 }}>
-      <lib.BannerAd unitId={unit} size={lib.BannerAdSize.ANCHORED_ADAPTIVE_BANNER} requestOptions={{ requestNonPersonalizedAdsOnly: true }} />
+      <lib.BannerAd unitId={unit} size={lib.BannerAdSize.ANCHORED_ADAPTIVE_BANNER} />
     </View>
   );
 }

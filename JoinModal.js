@@ -5,6 +5,8 @@ import { C, notify, Btn, Field, Chips } from './ui';
 import { rpc } from './api';
 import { showRewardedAd } from './ads';
 import { fmtCr, fmtNum, toCr, timeLeft, lockText, MAX_COLLECTION_CR } from './constants';
+import Poster from './Poster';
+import { success } from './haptics';
 
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500';
 
@@ -63,6 +65,7 @@ export default function JoinModal({ visible, movie, entry, topPrize, used = 0, m
         }
         await rpc('mcp_join_contest', { p_movie: movie.id, p_prediction: cr, p_answers: ans });
         if (res === 'earned') rpc('mcp_log_ad', { p_placement: 'join' }).catch(() => {});
+        success();
         notify('Success! You have joined. Find your entry, prizes and leaderboard in My Contests.');
       }
       onDone();
@@ -93,7 +96,7 @@ export default function JoinModal({ visible, movie, entry, topPrize, used = 0, m
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
           <View style={{ borderRadius: 10, overflow: 'hidden' }}>
-            <Image source={{ uri: movie.banner_url || PLACEHOLDER }} style={{ width: '100%', height: 170, backgroundColor: '#222' }} resizeMode="cover" />
+            <Poster uri={movie.banner_url || PLACEHOLDER} style={{ width: '100%', height: 170, backgroundColor: '#222' }} />
             <TouchableOpacity
               onPress={() => onTrailer(movie)}
               style={{ position: 'absolute', right: 10, bottom: 10, backgroundColor: 'rgba(229,9,20,0.95)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 16 }}

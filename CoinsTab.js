@@ -8,6 +8,7 @@ import { showRewardedAd } from './ads';
 import AdBanner from './AdBanner';
 import RedeemModal from './RedeemModal';
 import { fmtNum } from './constants';
+import { success } from './haptics';
 
 const statusColor = (s) => (s === 'fulfilled' ? '#1b5e20' : s === 'rejected' ? '#b71c1c' : '#8d6e00');
 const kindText = { prize: 'Contest prize', ad_bonus: 'Ad bonus', welcome: 'Welcome bonus', referral: 'Referral bonus', referral_gift: 'Friend code gift', expire: 'Expired', redeem: 'Reward request', redeem_refund: 'Refund', admin_adjust: 'Adjustment' };
@@ -33,6 +34,7 @@ export default function CoinsTab({ coins, rewards, settings, daily, refreshDaily
     setBusy(true);
     try {
       const r = await rpc('mcp_daily_checkin', {});
+      success();
       notify('Day ' + r.streak + ' reward: +' + fmtNum(r.earned) + ' coins!');
       onChanged();
       if (refreshDaily) refreshDaily();
@@ -50,6 +52,7 @@ export default function CoinsTab({ coins, rewards, settings, daily, refreshDaily
       else if (res === 'unavailable') notify('No ad is available right now. Please try again in a moment.');
       else {
         const r = await rpc('mcp_claim_ad_bonus', {});
+      success();
         notify('You earned ' + fmtNum(r.earned) + ' coins!');
         onChanged();
         load();

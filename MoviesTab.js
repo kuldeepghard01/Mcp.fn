@@ -1,10 +1,14 @@
 // MCP v3 FINAL (APK build)
 import React, { useEffect, useRef, useState } from 'react';
-import { Text, View, FlatList, Image, TouchableOpacity, Linking, ScrollView, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { Text, View, FlatList, TouchableOpacity, Linking, ScrollView, useWindowDimensions } from 'react-native';
 import { styles } from './styles';
 import { C, notify } from './ui';
 import { rpc } from './api';
 import AdBanner from './AdBanner';
+import Poster from './Poster';
+import Gradient from './Gradient';
+import PressCard from './PressCard';
+import { tap } from './haptics';
 import { CATEGORIES, fmtCr, isLocked, timeLeft } from './constants';
 
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500';
@@ -24,7 +28,7 @@ function SponsorCard({ sponsor }) {
   };
   return (
     <TouchableOpacity activeOpacity={0.9} onPress={open} style={{ marginBottom: 10 }}>
-      <Image source={{ uri: sponsor.image_url }} style={{ width: '100%', height: 90, borderRadius: 8, backgroundColor: '#222' }} resizeMode="cover" />
+      <Poster uri={sponsor.image_url} style={{ width: '100%', height: 90, borderRadius: 8, backgroundColor: '#222' }} />
       <Text style={{ color: '#666', fontSize: 9, marginTop: 2 }}>Sponsored</Text>
     </TouchableOpacity>
   );
@@ -47,30 +51,33 @@ function SkeletonCard() {
 // One card in the swipe row of finished movies
 function ResultCard({ m, onOpen, onTrailer }) {
   return (
-    <TouchableOpacity style={[styles.card, { marginBottom: 0 }]} activeOpacity={0.9} onPress={() => onOpen(m)}>
+    <PressCard style={[styles.card, { marginBottom: 0 }]} onPress={() => { tap(); onOpen(m); }}>
       <View style={{ position: 'relative' }}>
-        <Image source={{ uri: m.banner_url || PLACEHOLDER }} style={{ width: '100%', height: 150, backgroundColor: '#222' }} resizeMode="cover" />
+        <Poster uri={m.banner_url || PLACEHOLDER} style={{ width: '100%', height: 170, backgroundColor: '#222' }} />
+        <Gradient height={110} />
         <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.green }}>
           <Text style={{ color: C.sub, fontSize: 9, fontWeight: 'bold' }}>DAY 1 COLLECTION</Text>
           <Text style={{ color: C.green, fontSize: 18, fontWeight: 'bold' }}>{fmtCr(m.actual_collection)}</Text>
         </View>
+        <View style={{ position: 'absolute', left: 12, right: 100, bottom: 10 }}>
+          <Text numberOfLines={2} style={{ color: '#fff', fontSize: 18, fontWeight: 'bold' }}>{m.title}</Text>
+          <Text style={{ color: '#ddd', fontSize: 11, marginTop: 2 }}>{m.category + '  |  Release: ' + m.release_date}</Text>
+        </View>
         <TouchableOpacity
-          onPress={() => onTrailer(m)}
+          onPress={() => { tap(); onTrailer(m); }}
           style={{ position: 'absolute', right: 10, bottom: 10, backgroundColor: 'rgba(229,9,20,0.95)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 }}
         >
           <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>▶ Trailer</Text>
         </TouchableOpacity>
       </View>
-      <View style={{ padding: 12 }}>
-        <Text numberOfLines={1} style={styles.movieTitle}>{m.title}</Text>
-        <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>{m.category + '  |  Release: ' + m.release_date}</Text>
-        {m.result_source_name ? <Text style={{ color: '#6f8fbf', fontSize: 10, marginTop: 2 }}>{'Source: ' + m.result_source_name}</Text> : null}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+      <View style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+        {m.result_source_name ? <Text style={{ color: '#6f8fbf', fontSize: 10, marginBottom: 4 }}>{'Source: ' + m.result_source_name}</Text> : null}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Text style={{ color: C.gold, fontWeight: 'bold', fontSize: 11 }}>🏆 Results are out</Text>
           <View style={styles.closedBtn}><Text style={{ color: C.sub, fontSize: 11, fontWeight: 'bold' }}>View ➔</Text></View>
         </View>
       </View>
-    </TouchableOpacity>
+    </PressCard>
   );
 }
 
@@ -139,19 +146,27 @@ export default function MoviesTab({ movies, counts, joined, maxEntries, loading,
     const locked = isLocked(m);
     const n = counts[m.id] || 0;
     return (
-      <TouchableOpacity key={m.id} style={styles.card} activeOpacity={0.9} onPress={() => onOpen(m)}>
+      <PressCard key={m.id} style={styles.card} onPress={() => { tap(); onOpen(m); }}>
         <View style={{ position: 'relative' }}>
-          <Image source={{ uri: m.banner_url || PLACEHOLDER }} style={styles.bannerImage} resizeMode="cover" />
+          <Poster uri={m.banner_url || PLACEHOLDER} style={{ width: '100%', height: 190, backgroundColor: '#222' }} />
+          <Gradient height={120} />
+          {m.sponsor_name ? (
+            <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.75)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 }}>
+              <Text style={{ color: '#ffd54f', fontSize: 10, fontWeight: 'bold' }}>{'Presented by ' + m.sponsor_name}</Text>
+            </View>
+          ) : null}
+          <View style={{ position: 'absolute', left: 12, right: 100, bottom: 10 }}>
+            <Text numberOfLines={2} style={{ color: '#fff', fontSize: 19, fontWeight: 'bold' }}>{m.title}</Text>
+            <Text style={{ color: '#ddd', fontSize: 11, marginTop: 2 }}>{m.category + '  |  Release: ' + m.release_date}</Text>
+          </View>
           <TouchableOpacity
-            onPress={() => onTrailer(m)}
+            onPress={() => { tap(); onTrailer(m); }}
             style={{ position: 'absolute', right: 10, bottom: 10, backgroundColor: 'rgba(229,9,20,0.95)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 }}
           >
             <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>▶ Trailer</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.cardDetails}>
-          <Text style={styles.movieTitle}>{m.title}</Text>
-          <Text style={{ color: '#888', fontSize: 11, marginTop: 3 }}>{m.category + '  |  Release: ' + m.release_date}</Text>
           <View style={styles.actionRow}>
             <View style={{ flex: 1 }}>
               <Text style={{ color: locked ? C.sub : C.green, fontWeight: 'bold', fontSize: 11 }}>
@@ -166,7 +181,7 @@ export default function MoviesTab({ movies, counts, joined, maxEntries, loading,
             )}
           </View>
         </View>
-      </TouchableOpacity>
+      </PressCard>
     );
   };
 

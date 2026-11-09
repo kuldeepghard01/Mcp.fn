@@ -5,6 +5,7 @@ import { styles } from './styles';
 import { C, Btn, notify } from './ui';
 import { rpc, getEmail } from './api';
 import { fmtNum, APP_VERSION } from './constants';
+import { registerForPush } from './push';
 
 let Updates = null;
 try {
@@ -44,7 +45,7 @@ const updateLabel = () => {
   return 'off';
 };
 
-export default function ProfileTab({ profile, settings, entries, daily, onTerms, onHowTo, onLogout, onDelete }) {
+export default function ProfileTab({ profile, settings, entries, daily, onRefresh, onTerms, onHowTo, onLogout, onDelete }) {
   const [ref, setRef] = useState(null);
   useEffect(() => {
     rpc('mcp_my_referrals', {}).then(setRef).catch(() => {});
@@ -74,6 +75,18 @@ export default function ProfileTab({ profile, settings, entries, daily, onTerms,
       }
     } catch (e) {
       notify('Could not check for updates: ' + e.message);
+    }
+  };
+
+  const pushOn = !profile || profile.push_enabled !== false;
+  const togglePush = async () => {
+    try {
+      await rpc('mcp_set_push_enabled', { p_enabled: !pushOn });
+      if (!pushOn) registerForPush(true);
+      notify(pushOn ? 'Notifications turned off.' : 'Notifications turned on.');
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      notify(e.message);
     }
   };
 
@@ -146,10 +159,12 @@ export default function ProfileTab({ profile, settings, entries, daily, onTerms,
           </View>
         </View>
 
-        <Btn title="❓ How to play" color="#333" onPress={onHowTo} style={{ marginTop: 12 }} />
+        <Btn title={pushOn ? '🔔 Notifications: ON (tap to turn off)' : '🔕 Notifications: OFF (tap to turn on)'} color="#333" onPress={togglePush} style={{ marginTop: 12 }} />
+        <Btn title="❓ How to play" color="#333" onPress={onHowTo} style={{ marginTop: 8 }} />
         <Btn title="📜 Terms" color="#333" onPress={onTerms} style={{ marginTop: 8 }} />
         <Btn title="🔒 Privacy Policy" color="#333" onPress={() => { if (privacy) Linking.openURL(privacy).catch(() => onTerms()); else onTerms(); }} style={{ marginTop: 8 }} />
         {support ? <Btn title="✉️ Contact support" color="#333" onPress={() => Linking.openURL('mailto:' + support).catch(() => {})} style={{ marginTop: 8 }} /> : null}
+        {support ? <Btn title="📢 Advertise with us" color="#333" onPress={() => Linking.openURL('mailto:' + support + '?subject=' + encodeURIComponent('Advertising on MCP Fantasy')).catch(() => {})} style={{ marginTop: 8 }} /> : null}
         <Btn title="🔄 Check for updates" color="#333" onPress={checkUpdate} style={{ marginTop: 8 }} />
         <Btn title="🚪 Log out" color="#333" onPress={onLogout} style={{ marginTop: 8 }} />
         <Btn title="🗑 Delete my account" color="#7f1d1d" onPress={onDelete} style={{ marginTop: 8 }} />

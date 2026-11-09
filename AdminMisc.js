@@ -127,6 +127,7 @@ export function AdminNotify() {
     setBusy(true);
     try {
       await rpc('mcp_admin_send_notification', { p_title: t, p_message: m });
+      rpc('mcp_admin_push_all', { p_title: t, p_body: m }).catch(() => {});
       notify('Notification sent.');
       setT(''); setM('');
     } catch (e) {

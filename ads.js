@@ -6,3 +6,6 @@ export const initAds = async () => {};
 
 // Returns 'earned' | 'dismissed' | 'unavailable'
 export const showRewardedAd = (label) => simulatedAd(label);
+
+export const preloadInterstitial = () => {};
+export const maybeShowInterstitial = () => {};

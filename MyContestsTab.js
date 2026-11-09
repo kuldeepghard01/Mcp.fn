@@ -4,6 +4,7 @@ import { Text, View, FlatList } from 'react-native';
 import { styles } from './styles';
 import { C, Btn } from './ui';
 import { fmtCr, fmtNum, isLocked } from './constants';
+import AdBanner from './AdBanner';
 
 export default function MyContestsTab({ entries, movies, refreshing, onRefresh, onOpen, onEdit }) {
   return (
@@ -14,6 +15,7 @@ export default function MyContestsTab({ entries, movies, refreshing, onRefresh, 
         keyExtractor={(item) => item.id}
         refreshing={refreshing}
         onRefresh={onRefresh}
+        ListFooterComponent={<AdBanner />}
         ListEmptyComponent={<Text style={{ color: C.sub, textAlign: 'center', marginTop: 40 }}>You have not joined any contest yet. Join one from the Contests tab.</Text>}
         renderItem={({ item }) => {
           const mv = movies.find((m) => m.id === item.movie_id);

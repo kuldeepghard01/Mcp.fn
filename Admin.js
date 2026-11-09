@@ -6,6 +6,7 @@ import AdminMovies from './AdminMovies';
 import AdminResults from './AdminResults';
 import AdminRequests from './AdminRequests';
 import AdminSponsors from './AdminSponsors';
+import AdminPromo from './AdminPromo';
 import AdminEarnings from './AdminEarnings';
 import AdminSettings from './AdminSettings';
 import { AdminOverview, AdminUsers, AdminNotify } from './AdminMisc';
@@ -23,6 +24,7 @@ export default function Admin({ movies, onChanged, start }) {
           { key: 'earnings', label: '💰 Earnings' },
           { key: 'users', label: '👥 Users' },
           { key: 'sponsors', label: '💼 Sponsors' },
+          { key: 'promo', label: '🎯 Promo' },
           { key: 'notify', label: '📢 Notify' },
           { key: 'settings', label: '⚙️ Settings' },
         ]}
@@ -35,6 +37,7 @@ export default function Admin({ movies, onChanged, start }) {
       {sec === 'requests' ? <AdminRequests onChanged={onChanged} /> : null}
       {sec === 'users' ? <AdminUsers onChanged={onChanged} /> : null}
       {sec === 'sponsors' ? <AdminSponsors /> : null}
+      {sec === 'promo' ? <AdminPromo movies={movies} onChanged={onChanged} /> : null}
       {sec === 'notify' ? <AdminNotify /> : null}
       {sec === 'earnings' ? <AdminEarnings /> : null}
       {sec === 'settings' ? <AdminSettings /> : null}

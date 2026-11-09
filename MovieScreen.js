@@ -5,6 +5,7 @@ import { C, Btn, notify } from './ui';
 import { rpc } from './api';
 import AdBanner from './AdBanner';
 import { fmtCr, fmtNum, isLocked, timeLeft, lockText } from './constants';
+import Poster from './Poster';
 
 const PLACEHOLDER = 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=500';
 
@@ -40,6 +41,11 @@ export default function MovieScreen({ visible, movie, entries, maxEntries, appLi
     } catch (e) {}
   };
 
+  const openPromo = (kind, url) => {
+    rpc('mcp_log_promo', { p_movie: movie.id, p_kind: kind }).catch(() => {});
+    Linking.openURL(url).catch(() => notify('Could not open the link.'));
+  };
+
   const locked = isLocked(movie);
   const settled = !!movie.settled_at;
   const qs = movie.about_questions || [];
@@ -67,7 +73,7 @@ export default function MovieScreen({ visible, movie, entries, maxEntries, appLi
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 30 }}>
           <View style={{ marginHorizontal: 12, borderRadius: 10, overflow: 'hidden' }}>
-            <Image source={{ uri: movie.banner_url || PLACEHOLDER }} style={{ width: '100%', height: 180, backgroundColor: '#222' }} resizeMode="cover" />
+            <Poster uri={movie.banner_url || PLACEHOLDER} style={{ width: '100%', height: 180, backgroundColor: '#222' }} />
             {settled ? (
               <View style={{ position: 'absolute', top: 10, left: 10, backgroundColor: 'rgba(0,0,0,0.85)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: C.green }}>
                 <Text style={{ color: C.sub, fontSize: 9, fontWeight: 'bold' }}>DAY 1 COLLECTION</Text>
@@ -81,6 +87,31 @@ export default function MovieScreen({ visible, movie, entries, maxEntries, appLi
               <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>▶ Watch trailer</Text>
             </TouchableOpacity>
           </View>
+
+          {movie.sponsor_name || (movie.ticket_url && !settled) ? (
+            <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+              {movie.sponsor_name ? (
+                <TouchableOpacity
+                  disabled={!movie.sponsor_url}
+                  onPress={() => openPromo('sponsor', movie.sponsor_url)}
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a1a1a', borderRadius: 8, padding: 8, marginBottom: 8, borderWidth: 1, borderColor: '#2c2c2c' }}
+                >
+                  {movie.sponsor_logo_url ? <Poster uri={movie.sponsor_logo_url} style={{ width: 36, height: 36, borderRadius: 6, marginRight: 10, backgroundColor: '#222' }} /> : null}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#888', fontSize: 9 }}>SPONSORED</Text>
+                    <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>{'Presented by ' + movie.sponsor_name}</Text>
+                  </View>
+                  {movie.sponsor_url ? <Text style={{ color: '#8ab4f8', fontSize: 11 }}>Visit ➔</Text> : null}
+                </TouchableOpacity>
+              ) : null}
+              {movie.ticket_url && !settled ? (
+                <View>
+                  <Btn title="🎟️ Book tickets" color="#1565c0" onPress={() => openPromo('ticket', movie.ticket_url)} />
+                  <Text style={{ color: '#666', fontSize: 9, marginTop: 4 }}>This is an affiliate link. We may earn a commission at no extra cost to you.</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={{ flexDirection: 'row', paddingHorizontal: 16, paddingTop: 16, borderBottomWidth: 1, borderBottomColor: '#222' }}>
             {tabBtn('prizes', 'PRIZES')}

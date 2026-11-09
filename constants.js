@@ -14,6 +14,7 @@ export const ADMOB = {
   testMode: true,
   rewarded: "ca-app-pub-3558136570580125/4253439264",
   banner: "",
+  interstitial: "",
 };
 
 export const CATEGORIES = ["Bollywood", "Hollywood", "Tollywood", "Other"];

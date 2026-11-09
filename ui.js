@@ -1,6 +1,7 @@
 // MCP v3 FINAL (APK build)
 import React from 'react';
 import { View, Text, TouchableOpacity, TextInput, Modal, ScrollView, Platform, Alert } from 'react-native';
+import { tap } from './haptics';
 
 export const C = {
   bg: '#0f0f0f', card: '#1a1a1a', card2: '#222', line: '#333',
@@ -30,11 +31,15 @@ export const confirmBox = (msg) =>
   });
 
 export function Btn({ title, onPress, color, disabled, small, style }) {
+  const press = () => {
+    tap();
+    if (onPress) onPress();
+  };
   return (
     <TouchableOpacity
       activeOpacity={0.8}
       disabled={disabled}
-      onPress={onPress}
+      onPress={press}
       style={[
         {
           backgroundColor: disabled ? '#444' : (color || C.red),
